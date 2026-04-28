@@ -42,4 +42,9 @@ window.Echo.channel('meters')
         window.dispatchEvent(new CustomEvent('meter-reading-updated', {
             detail: event,
         }));
+    })
+    .listen('.meter.availability.updated', (event) => {
+        window.dispatchEvent(new CustomEvent('meter-availability-updated', {
+            detail: event,
+        }));
     });

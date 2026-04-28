@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DeviceManagementController;
 use App\Http\Controllers\MeterDashboardController;
 use Illuminate\Support\Facades\Route;
 
@@ -13,3 +14,4 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', [MeterDashboardController::class, 'show']);
+Route::get('/devices/manage', [DeviceManagementController::class, 'index']);

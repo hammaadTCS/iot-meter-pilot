@@ -2,555 +2,357 @@
 
 namespace App\Console\Commands;
 
+use App\Events\MeterAvailabilityUpdated;
+use App\Events\MeterReadingUpdated;
+use App\Models\Device;
+use App\Services\Meters\MeterAvailabilityProcessor;
+use App\Services\Meters\MeterIngestionRecorder;
+use App\Services\Meters\MeterPayloadProcessor;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use PhpMqtt\Client\Facades\MQTT;
-
-use App\Models\Device;
-use App\Models\MeterReading;
-use App\Models\LatestMeterState;
-use App\Events\MeterReadingUpdated;
+use Throwable;
 
 class ConsumeMeterTopic extends Command
 {
     protected $signature = 'mqtt:consume-meter';
+
     protected $description = 'Consume meter MQTT topics and store readings';
 
-    public function handle()
-    {
+    /**
+     * Keep the lock file handle open for the lifetime of the command. PHP
+     * releases the flock automatically if the process crashes or exits.
+     */
+    private mixed $consumerLockHandle = null;
+
+    public function handle(
+        MeterPayloadProcessor $processor,
+        MeterAvailabilityProcessor $availabilityProcessor,
+        MeterIngestionRecorder $ingestionRecorder,
+    ) {
         $this->info('Starting MQTT meter consumer...');
 
+        if (! $this->acquireConsumerLock()) {
+            $this->warn('Another MQTT meter consumer is already running. Exiting.');
+
+            Log::warning('MQTT consumer refused to start because another instance holds the lock');
+
+            return self::FAILURE;
+        }
+
+        $connectionConfig = (array) config('mqtt-client.connections.default', []);
+        $subscribeQos = (int) ($connectionConfig['subscribe_qos'] ?? 1);
+        $retryConfig = (array) ($connectionConfig['retry'] ?? []);
+        $retryBaseDelaySeconds = max(1, (int) ($retryConfig['base_delay_seconds'] ?? env('MQTT_RETRY_DELAY', 5)));
+        $retryMaxDelaySeconds = max($retryBaseDelaySeconds, (int) ($retryConfig['max_delay_seconds'] ?? env('MQTT_RETRY_MAX_DELAY', 60)));
+        $reconnectAttempt = 0;
+
         try {
+            while (true) {
+                try {
+                    $mqtt = MQTT::connection();
 
-            $mqtt = MQTT::connection();
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Load all active devices
+                    |--------------------------------------------------------------------------
+                    */
 
-            /*
-            |--------------------------------------------------------------------------
-            | Load all active devices
-            |--------------------------------------------------------------------------
-            */
+                    $devices = Device::where('is_active', true)->get();
 
-            $devices = Device::where('is_active', true)->get();
+                    if ($devices->isEmpty()) {
+                        $this->warn('No active devices found.');
 
-            if ($devices->isEmpty()) {
-                $this->warn('No active devices found.');
-                return;
-            }
+                        return self::SUCCESS;
+                    }
 
-            /*
-            |--------------------------------------------------------------------------
-            | Subscribe to all device topics
-            |--------------------------------------------------------------------------
-            */
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Subscribe to all device topics
+                    |--------------------------------------------------------------------------
+                    */
 
-            foreach ($devices as $device) {
+                    foreach ($devices as $device) {
 
-                $topic = trim($device->mqtt_topic);
+                        $topic = trim($device->mqtt_topic);
 
-                $this->info("Subscribing to topic: {$topic}");
+                        $this->info("Subscribing to topic: {$topic}");
 
-                $mqtt->subscribe($topic, function (string $topic, string $message) {
+                        Log::info('MQTT consumer subscribing to data topic', [
+                            'topic' => $topic,
+                            'device_id' => $device->id,
+                            'qos' => $subscribeQos,
+                        ]);
 
-                    try {
+                        $mqtt->subscribe($topic, function (string $topic, string $message) use ($processor) {
+                            try {
+                                $topic = trim($topic);
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Normalize topic
-                        |--------------------------------------------------------------------------
-                        */
+                                echo "\n=============================\n";
+                                echo 'Topic: '.$topic."\n";
+                                echo 'Payload: '.$message."\n";
 
-                        $topic = trim($topic);
+                                $result = $processor->process($topic, $message);
 
-                        echo "\n=============================\n";
-                        echo "Topic: " . $topic . "\n";
-                        echo "Payload: " . $message . "\n";
+                                if ($result->status === 'ignored_unknown_topic') {
+                                    echo "Device NOT FOUND for topic\n";
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Decode JSON
-                        |--------------------------------------------------------------------------
-                        */
+                                    Log::warning('MQTT message ignored because topic is not registered', [
+                                        'topic' => $topic,
+                                        'payload_size_bytes' => strlen($message),
+                                    ]);
 
-                        $payload = json_decode($message, true);
+                                    return;
+                                }
 
-                        if (!$payload) {
-                            echo "Invalid JSON\n";
-                            return;
-                        }
+                                $device = $result->device;
+                                $reading = $result->reading;
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Find device using topic
-                        |--------------------------------------------------------------------------
-                        */
+                                if ($device) {
+                                    echo 'Device matched: ID='.$device->id."\n";
+                                }
 
-                        $device = Device::whereRaw('TRIM(mqtt_topic) = ?', [$topic])->first();
+                                if ($result->status === 'payload_issue') {
+                                    echo ($result->errorMessage ?? 'Payload issue detected.')."\n";
 
-                        if (!$device) {
-                            echo "Device NOT FOUND for topic\n";
-                            return;
-                        }
+                                    Log::warning('MQTT payload issue recorded for device', [
+                                        'topic' => $topic,
+                                        'device_id' => $device?->id,
+                                        'error_code' => $result->errorCode,
+                                        'error_message' => $result->errorMessage,
+                                    ]);
 
-                        echo "Device matched: ID=" . $device->id . "\n";
+                                    return;
+                                }
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Extract values
-                        |--------------------------------------------------------------------------
-                        */
+                                if (! $result->wasStored() || ! $device || ! $reading) {
+                                    return;
+                                }
 
-                        $ts = $payload['ts'] ?? time();
-                        $voltage = $payload['voltage'] ?? null;
-                        $current = $payload['current'] ?? null;
-                        $power = $payload['power'] ?? null;
-                        $energyComputed = $payload['energy_computed_wh'] ?? null;
-                        $energyPzem = $payload['energy_pzem_wh'] ?? null;
-                        $frequency = $payload['frequency'] ?? null;
-                        $pf = $payload['pf'] ?? null;
+                                echo "Reading stored successfully\n";
 
-                        echo "Saving reading...\n";
+                                if (! $result->latestStateUpdated) {
+                                    Log::notice('MQTT reading stored without changing latest meter state', [
+                                        'topic' => $topic,
+                                        'device_id' => $device->id,
+                                        'reading_id' => $reading->id,
+                                        'ts' => $reading->ts,
+                                    ]);
+                                }
+                            } catch (Throwable $e) {
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Save reading
-                        |--------------------------------------------------------------------------
-                        */
+                                echo 'ERROR: '.$e->getMessage()."\n";
 
-                        $storedReading = DB::transaction(function () use (
-                            $device,
-                            $ts,
-                            $voltage,
-                            $current,
-                            $power,
-                            $energyComputed,
-                            $energyPzem,
-                            $frequency,
-                            $pf,
-                            $payload
-                        ) {
-                            $receivedAt = now();
+                                Log::error('MQTT message processing failed', [
+                                    'topic' => $topic,
+                                    'error' => $e->getMessage(),
+                                ]);
 
-                            $reading = MeterReading::updateOrCreate(
-                                [
-                                    'device_id' => $device->id,
-                                    'ts' => $ts,
-                                ],
-                                [
-                                    'voltage' => $voltage,
-                                    'current' => $current,
-                                    'power' => $power,
-                                    'energy_computed_wh' => $energyComputed,
-                                    'energy_pzem_wh' => $energyPzem,
-                                    'frequency' => $frequency,
-                                    'pf' => $pf,
-                                    'raw_payload' => $payload,
-                                ]
-                            );
-
-                            $device->forceFill([
-                                'last_seen_at' => $receivedAt,
-                            ])->save();
+                                return;
+                            }
 
                             /*
                             |--------------------------------------------------------------------------
-                            | Update latest state
+                            | Broadcast realtime event
                             |--------------------------------------------------------------------------
                             */
 
-                            LatestMeterState::updateOrCreate(
-                                ['device_id' => $device->id],
-                                [
-                                    'ts' => $ts,
-                                    'voltage' => $voltage,
-                                    'current' => $current,
-                                    'power' => $power,
-                                    'energy_computed_wh' => $energyComputed,
-                                    'energy_pzem_wh' => $energyPzem,
-                                    'frequency' => $frequency,
-                                    'pf' => $pf,
-                                    'received_at' => $receivedAt,
-                                ]
-                            );
+                            try {
+                                event(new MeterReadingUpdated($device->fresh(), $reading, $result->latestStateUpdated));
+                            } catch (Throwable $e) {
+                                echo 'BROADCAST WARNING: '.$e->getMessage()."\n";
 
-                            return $reading->fresh();
-                        });
+                                Log::warning('MQTT reading stored but broadcast failed', [
+                                    'topic' => $topic,
+                                    'device_id' => $device->id,
+                                    'reading_id' => $reading->id,
+                                    'ts' => $reading->ts,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
 
-                        echo "Reading stored successfully\n";
+                        }, $subscribeQos);
 
-                        /*
-                        |--------------------------------------------------------------------------
-                        | Broadcast realtime event
-                        |--------------------------------------------------------------------------
-                        */
+                        $availabilityTopic = trim((string) $device->resolvedAvailabilityTopic());
 
-                        event(new MeterReadingUpdated($device->fresh(), $storedReading));
-                    } catch (\Throwable $e) {
+                        if ($availabilityTopic === '' || $availabilityTopic === $topic) {
+                            continue;
+                        }
 
-                        echo "ERROR: " . $e->getMessage() . "\n";
+                        $this->info("Subscribing to availability topic: {$availabilityTopic}");
 
-                        Log::error('MQTT message processing failed', [
-                            'topic' => $topic,
-                            'error' => $e->getMessage()
+                        Log::info('MQTT consumer subscribing to availability topic', [
+                            'topic' => $availabilityTopic,
+                            'device_id' => $device->id,
+                            'qos' => $subscribeQos,
                         ]);
+
+                        $mqtt->subscribe($availabilityTopic, function (string $topic, string $message) use ($availabilityProcessor, $ingestionRecorder) {
+                            try {
+                                $topic = trim($topic);
+
+                                echo "\n=============================\n";
+                                echo 'Availability Topic: '.$topic."\n";
+                                echo 'Availability Payload: '.$message."\n";
+
+                                $result = $availabilityProcessor->process($topic, $message);
+
+                                if ($result->status === 'ignored_unknown_topic') {
+                                    echo "Device NOT FOUND for availability topic\n";
+
+                                    Log::warning('MQTT availability message ignored because topic is not registered', [
+                                        'topic' => $topic,
+                                        'payload_size_bytes' => strlen($message),
+                                    ]);
+
+                                    $ingestionRecorder->record(
+                                        topic: $topic,
+                                        status: 'availability_unknown_topic',
+                                        payloadPreview: $ingestionRecorder->preview($message),
+                                    );
+
+                                    return;
+                                }
+
+                                $device = $result->device;
+
+                                if (! $result->wasStored() || ! $device) {
+                                    return;
+                                }
+
+                                echo 'Availability stored for device: ID='.$device->id."\n";
+                            } catch (Throwable $e) {
+                                echo 'ERROR: '.$e->getMessage()."\n";
+
+                                Log::error('MQTT availability processing failed', [
+                                    'topic' => $topic,
+                                    'error' => $e->getMessage(),
+                                ]);
+
+                                return;
+                            }
+
+                            try {
+                                event(new MeterAvailabilityUpdated($device->fresh()));
+                            } catch (Throwable $e) {
+                                echo 'BROADCAST WARNING: '.$e->getMessage()."\n";
+
+                                Log::warning('MQTT availability stored but broadcast failed', [
+                                    'topic' => $topic,
+                                    'device_id' => $device->id,
+                                    'availability_status' => $device->last_availability_status,
+                                    'error' => $e->getMessage(),
+                                ]);
+                            }
+                        }, $subscribeQos);
                     }
 
-                }, 0);
+                    /*
+                    |--------------------------------------------------------------------------
+                    | Start MQTT loop
+                    |--------------------------------------------------------------------------
+                    */
+
+                    $reconnectAttempt = 0;
+                    $mqtt->loop(true);
+                } catch (Throwable $e) {
+                    $this->error($e->getMessage());
+
+                    Log::error('MQTT consumer crashed', [
+                        'error' => $e->getMessage(),
+                    ]);
+                } finally {
+                    try {
+                        MQTT::disconnect();
+                    } catch (Throwable $disconnectError) {
+                        Log::warning('MQTT consumer disconnect cleanup failed', [
+                            'error' => $disconnectError->getMessage(),
+                        ]);
+                    }
+                }
+
+                $retryDelaySeconds = $this->nextRetryDelaySeconds(
+                    attempt: $reconnectAttempt,
+                    baseDelaySeconds: $retryBaseDelaySeconds,
+                    maxDelaySeconds: $retryMaxDelaySeconds,
+                );
+                $reconnectAttempt++;
+
+                $this->warn("MQTT consumer disconnected. Reconnecting in {$retryDelaySeconds} second(s)...");
+                sleep($retryDelaySeconds);
             }
-
-            /*
-            |--------------------------------------------------------------------------
-            | Start MQTT loop
-            |--------------------------------------------------------------------------
-            */
-
-            $mqtt->loop(true);
-
-        } catch (\Throwable $e) {
-
-            $this->error($e->getMessage());
-
-            Log::error('MQTT consumer crashed', [
-                'error' => $e->getMessage()
-            ]);
+        } finally {
+            $this->releaseConsumerLock();
         }
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * Calculate a bounded exponential reconnect delay with light jitter.
+     * The jitter keeps multiple restarted consumers from reconnecting in lockstep
+     * after a broker or network outage.
+     */
+    private function nextRetryDelaySeconds(
+        int $attempt,
+        int $baseDelaySeconds,
+        int $maxDelaySeconds,
+    ): int {
+        $exponentialDelay = min(
+            $maxDelaySeconds,
+            $baseDelaySeconds * (2 ** min($attempt, 6)),
+        );
+
+        return min(
+            $maxDelaySeconds,
+            $exponentialDelay + random_int(0, min(3, $exponentialDelay)),
+        );
+    }
+
+    /**
+     * Use a process-level file lock to prevent duplicate local consumers. This
+     * avoids cache TTL expiry problems while the MQTT loop blocks for hours.
+     */
+    private function acquireConsumerLock(): bool
+    {
+        $lockPath = storage_path('framework/mqtt-consumer.lock');
+        $handle = fopen($lockPath, 'c');
+
+        if (! $handle) {
+            Log::error('MQTT consumer lock file could not be opened', [
+                'path' => $lockPath,
+            ]);
+
+            return false;
+        }
+
+        if (! flock($handle, LOCK_EX | LOCK_NB)) {
+            fclose($handle);
+
+            return false;
+        }
+
+        ftruncate($handle, 0);
+        fwrite($handle, (string) getmypid());
+        fflush($handle);
+
+        $this->consumerLockHandle = $handle;
+
+        return true;
+    }
+
+    /**
+     * Release the local process lock during graceful exits. Crash exits are also
+     * safe because the operating system releases flock handles automatically.
+     */
+    private function releaseConsumerLock(): void
+    {
+        if (! is_resource($this->consumerLockHandle)) {
+            return;
+        }
+
+        flock($this->consumerLockHandle, LOCK_UN);
+        fclose($this->consumerLockHandle);
+        $this->consumerLockHandle = null;
     }
 }
-// namespace App\Console\Commands;
-
-// use App\Events\MeterReadingUpdated;
-// use App\Models\Device;
-// use App\Models\LatestMeterState;
-// use App\Models\MeterReading;
-// use Illuminate\Console\Command;
-// use Illuminate\Support\Facades\DB;
-// use Illuminate\Support\Facades\Log;
-// use PhpMqtt\Client\Facades\MQTT;
-// use Throwable;
-
-// class ConsumeMeterTopic extends Command
-// {
-//     protected $signature = 'mqtt:consume-meter';
-
-//     protected $description = 'Subscribe to all meter MQTT topics and store readings';
-
-//     public function handle()
-//     {
-//         $this->info('Starting MQTT meter consumer...');
-
-//         try {
-
-//             $mqtt = MQTT::connection();
-
-//             /*
-//              |------------------------------------------
-//              | Load all active device topics
-//              |------------------------------------------
-//              */
-
-//             $devices = Device::where('is_active', true)->get();
-
-//             if ($devices->isEmpty()) {
-//                 $this->warn('No active devices found.');
-//                 return;
-//             }
-
-//             foreach ($devices as $device) {
-
-//                 $topic = $device->mqtt_topic;
-
-//                 $this->info("Subscribing to topic: {$topic}");
-//             //     $mqtt->subscribe('#', function (string $topic, string $message) {
-
-//             //     echo "Topic: " . $topic . PHP_EOL;
-//             //     echo "Payload: " . $message . PHP_EOL;
-
-//             // });
-
-//                 $mqtt->subscribe($topic, function (string $topic, string $message) {
-//                         $topic = trim($topic);
-//                      echo "Message received on topic: " . $topic . PHP_EOL;
-//                      echo "Payload: " . $message . PHP_EOL;
-
-
-//                     try {
-
-//                         $payload = json_decode($message, true);
-
-//                         if (!$payload) {
-//                             Log::warning('Invalid JSON payload', [
-//                                 'topic' => $topic,
-//                                 'message' => $message
-//                             ]);
-//                             return;
-//                         }
-
-//                         /*
-//                          |------------------------------------------
-//                          | Find device using topic
-//                          |------------------------------------------
-//                          */
-
-//                         // $device = Device::where('mqtt_topic', $topic)->first();
-//                         // $device = Device::whereRaw('TRIM(mqtt_topic) = ?', [$topic])->first();
-//                         $device = Device::whereRaw('TRIM(mqtt_topic) = ?', [trim($topic)])->first();
-
-//                         if (!$device) {
-//                             echo "❌ Device NOT FOUND for topic: " . $topic . PHP_EOL;
-//                             return;
-//                         }
-
-//                         echo "✅ Device matched: ID=" . $device->id . " Name=" . $device->name . PHP_EOL;
-//                         // if (!$device) {
-//                         //     Log::warning('Unknown device topic', [
-//                         //         'topic' => $topic
-//                         //     ]);
-//                         //     return;
-//                         // }
-
-//                         /*
-//                          |------------------------------------------
-//                          | Extract values from payload
-//                          |------------------------------------------
-//                          */
-
-//                         $ts = $payload['ts'] ?? time();
-
-//                         $voltage = $payload['voltage'] ?? null;
-//                         $current = $payload['current'] ?? null;
-//                         $power = $payload['power'] ?? null;
-//                         $energyComputed = $payload['energy_computed_wh'] ?? null;
-//                         $energyPzem = $payload['energy_pzem_wh'] ?? null;
-//                         $frequency = $payload['frequency'] ?? null;
-//                         $pf = $payload['pf'] ?? null;
-
-//                         DB::transaction(function () use (
-//                             $device,
-//                             $ts,
-//                             $voltage,
-//                             $current,
-//                             $power,
-//                             $energyComputed,
-//                             $energyPzem,
-//                             $frequency,
-//                             $pf,
-//                             $payload
-//                         ) {
-
-//                             /*
-//                              |------------------------------------------
-//                              | Store history
-//                              |------------------------------------------
-//                              */
-
-//                             MeterReading::create([
-//                             'device_id' => $device->id,
-//                             'ts' => $ts,
-//                             'voltage' => $voltage,
-//                             'current' => $current,
-//                             'power' => $power,
-//                             'energy_computed_wh' => $energyComputed,
-//                             'energy_pzem_wh' => $energyPzem,
-//                             'frequency' => $frequency,
-//                             'pf' => $pf,
-//                             'raw_payload' => json_encode($payload)
-//                             ]);
-
-//                             /*
-//                              |------------------------------------------
-//                              | Update latest state
-//                              |------------------------------------------
-//                              */
-
-//                             LatestMeterState::updateOrCreate(
-//                                 ['device_id' => $device->id],
-//                                 [
-//                                     'voltage' => $voltage,
-//                                     'current' => $current,
-//                                     'power' => $power,
-//                                     'energy_computed_wh' => $energyComputed,
-//                                     'energy_pzem_wh' => $energyPzem,
-//                                     'frequency' => $frequency,
-//                                     'pf' => $pf,
-//                                     'updated_at' => now()
-//                                 ]
-//                             );
-
-//                             /*
-//                              |------------------------------------------
-//                              | Broadcast realtime event
-//                              |------------------------------------------
-//                              */
-
-//                             event(new MeterReadingUpdated($device->id, [
-//                                 'voltage' => $voltage,
-//                                 'current' => $current,
-//                                 'power' => $power,
-//                                 'energy_computed_wh' => $energyComputed,
-//                                 'energy_pzem_wh' => $energyPzem,
-//                                 'frequency' => $frequency,
-//                                 'pf' => $pf
-//                                 ]));
-//                         });
-
-//                     } catch (Throwable $e) {
-
-//                         Log::error('Error processing MQTT message', [
-//                             'topic' => $topic,
-//                             'error' => $e->getMessage()
-//                         ]);
-//                     }
-
-//                 }, 0);
-//             }
-
-//             $mqtt->loop(true);
-
-//         } catch (Throwable $e) {
-
-//             Log::error('MQTT consumer crashed', [
-//                 'error' => $e->getMessage()
-//             ]);
-
-//             $this->error($e->getMessage());
-//         }
-//     }
-// }
-// namespace App\Console\Commands;
-
-// use App\Events\MeterReadingUpdated;
-// use App\Models\Device;
-// use App\Models\LatestMeterState;
-// use App\Models\MeterReading;
-// use Illuminate\Console\Command;
-// use Illuminate\Support\Facades\DB;
-// use Illuminate\Support\Facades\Log;
-// use PhpMqtt\Client\Facades\MQTT;
-// use Throwable;
-
-// class ConsumeMeterTopic extends Command
-// {
-//     protected $signature = 'mqtt:consume-meter';
-//     protected $description = 'Subscribe to one meter MQTT topic and store readings in real time';
-
-//     public function handle(): int
-//     {
-//         $topic = env('METER_TOPIC');
-
-//         if (!$topic) {
-//             $this->error('METER_TOPIC is missing in .env');
-//             return self::FAILURE;
-//         }
-
-//         $device = Device::where('mqtt_topic', $topic)->first();
-
-//         if (!$device) {
-//             $this->error("No device found for topic: {$topic}");
-//             return self::FAILURE;
-//         }
-
-//         $this->info('MQTT runtime configuration:');
-//         $this->line('Host: ' . config('mqtt-client.connections.default.host'));
-//         $this->line('Port: ' . config('mqtt-client.connections.default.port'));
-//         $this->line('Client ID: ' . config('mqtt-client.connections.default.client_id'));
-//         $this->line('Topic: ' . $topic);
-
-//         $this->info("Connecting to MQTT broker...");
-//         $this->info("Subscribing to topic: {$topic}");
-
-//         $mqtt = MQTT::connection();
-
-//         $mqtt->subscribe($topic, function (string $topic, string $message) use ($device) {
-//             $this->line("Message received on topic: {$topic}");
-//             $this->line("Raw message: {$message}");
-
-//             Log::info('Raw MQTT message received', [
-//                 'topic' => $topic,
-//                 'message' => $message,
-//             ]);
-
-//             try {
-//                 $payload = json_decode($message, true, 512, JSON_THROW_ON_ERROR);
-
-//                 $payload = array_merge([
-//                     'ts' => null,
-//                     'voltage' => null,
-//                     'current' => null,
-//                     'power' => null,
-//                     'energy_computed_wh' => null,
-//                     'energy_pzem_wh' => null,
-//                     'frequency' => null,
-//                     'pf' => null,
-//                 ], $payload);
-
-//                 if ($payload['ts'] === null) {
-//                     throw new \RuntimeException('Missing required field: ts');
-//                 }
-
-//                 DB::transaction(function () use ($device, $payload) {
-//                     MeterReading::updateOrCreate(
-//                         [
-//                             'device_id' => $device->id,
-//                             'ts' => (int) $payload['ts'],
-//                         ],
-//                         [
-//                             'voltage' => is_numeric($payload['voltage']) ? (float) $payload['voltage'] : null,
-//                             'current' => is_numeric($payload['current']) ? (float) $payload['current'] : null,
-//                             'power' => is_numeric($payload['power']) ? (float) $payload['power'] : null,
-//                             'energy_computed_wh' => is_numeric($payload['energy_computed_wh']) ? (float) $payload['energy_computed_wh'] : null,
-//                             'energy_pzem_wh' => is_numeric($payload['energy_pzem_wh']) ? (int) $payload['energy_pzem_wh'] : null,
-//                             'frequency' => is_numeric($payload['frequency']) ? (float) $payload['frequency'] : null,
-//                             'pf' => is_numeric($payload['pf']) ? (float) $payload['pf'] : null,
-//                             'raw_payload' => $payload,
-//                         ]
-//                     );
-
-//                     LatestMeterState::updateOrCreate(
-//                         ['device_id' => $device->id],
-//                         [
-//                             'ts' => (int) $payload['ts'],
-//                             'voltage' => is_numeric($payload['voltage']) ? (float) $payload['voltage'] : null,
-//                             'current' => is_numeric($payload['current']) ? (float) $payload['current'] : null,
-//                             'power' => is_numeric($payload['power']) ? (float) $payload['power'] : null,
-//                             'energy_computed_wh' => is_numeric($payload['energy_computed_wh']) ? (float) $payload['energy_computed_wh'] : null,
-//                             'energy_pzem_wh' => is_numeric($payload['energy_pzem_wh']) ? (int) $payload['energy_pzem_wh'] : null,
-//                             'frequency' => is_numeric($payload['frequency']) ? (float) $payload['frequency'] : null,
-//                             'pf' => is_numeric($payload['pf']) ? (float) $payload['pf'] : null,
-//                             'received_at' => now(),
-//                         ]
-//                     );
-
-//                     $device->update([
-//                         'last_seen_at' => now(),
-//                     ]);
-//                 });
-
-//                 event(new MeterReadingUpdated($device, [
-//                     'ts' => (int) $payload['ts'],
-//                     'voltage' => is_numeric($payload['voltage']) ? (float) $payload['voltage'] : null,
-//                     'current' => is_numeric($payload['current']) ? (float) $payload['current'] : null,
-//                     'power' => is_numeric($payload['power']) ? (float) $payload['power'] : null,
-//                     'energy_computed_wh' => is_numeric($payload['energy_computed_wh']) ? (float) $payload['energy_computed_wh'] : null,
-//                     'energy_pzem_wh' => is_numeric($payload['energy_pzem_wh']) ? (int) $payload['energy_pzem_wh'] : null,
-//                     'frequency' => is_numeric($payload['frequency']) ? (float) $payload['frequency'] : null,
-//                     'pf' => is_numeric($payload['pf']) ? (float) $payload['pf'] : null,
-//                     'received_at' => now()->toDateTimeString(),
-//                 ]));
-
-//                 $this->info("Saved reading successfully. ts={$payload['ts']}");
-//             } catch (Throwable $e) {
-//                 Log::error('MQTT meter consume failed', [
-//                     'topic' => $topic,
-//                     'message' => $message,
-//                     'error' => $e->getMessage(),
-//                 ]);
-
-//                 $this->error('Failed to process MQTT message: ' . $e->getMessage());
-//             }
-//         }, 0);
-
-//         $mqtt->loop(true);
-
-//         return self::SUCCESS;
-//     }
-// }

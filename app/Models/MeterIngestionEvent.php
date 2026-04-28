@@ -5,30 +5,24 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class MeterReading extends Model
+class MeterIngestionEvent extends Model
 {
     protected $fillable = [
         'device_id',
-        'ts',
+        'topic',
+        'status',
+        'error_code',
+        'error_message',
+        'payload_preview',
+        'context',
         'received_at',
-        'voltage',
-        'current',
-        'power',
-        'energy_computed_wh',
-        'energy_pzem_wh',
-        'frequency',
-        'pf',
-        'raw_payload',
     ];
 
     protected $casts = [
+        'context' => 'array',
         'received_at' => 'datetime',
-        'raw_payload' => 'array',
     ];
 
-    /**
-     * Each reading belongs to one device.
-     */
     public function device(): BelongsTo
     {
         return $this->belongsTo(Device::class);

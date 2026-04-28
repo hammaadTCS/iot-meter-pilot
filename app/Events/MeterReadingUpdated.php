@@ -18,9 +18,9 @@ class MeterReadingUpdated implements ShouldBroadcastNow
      */
     public function __construct(
         public Device $device,
-        public MeterReading $reading
-    ) {
-    }
+        public MeterReading $reading,
+        public bool $latestStateUpdated = true,
+    ) {}
 
     /**
      * Public channel for this simple pilot.
@@ -51,6 +51,7 @@ class MeterReadingUpdated implements ShouldBroadcastNow
             'device_code' => $this->device->code,
             'device_name' => $this->device->name,
             'last_seen_at' => $this->device->last_seen_at?->toIso8601String(),
+            'latest_state_updated' => $this->latestStateUpdated,
             'reading' => [
                 'id' => $this->reading->id,
                 'ts' => $this->reading->ts,
@@ -62,7 +63,8 @@ class MeterReadingUpdated implements ShouldBroadcastNow
                 'frequency' => $this->reading->frequency,
                 'pf' => $this->reading->pf,
                 'created_at' => $this->reading->created_at?->toIso8601String(),
-                'received_at' => $this->device->last_seen_at?->toIso8601String(),
+                'received_at' => $this->reading->received_at?->toIso8601String()
+                    ?? $this->device->last_seen_at?->toIso8601String(),
             ],
         ];
     }

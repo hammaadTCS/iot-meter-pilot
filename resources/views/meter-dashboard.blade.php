@@ -18,16 +18,26 @@
 |     for subsequent polls so the UI never flickers
 |
 | Variables expected from the controller:
+|   $devices         — collection of active meter devices for the selector
 |   $device          — Device model (id, name, mqtt_topic, last_seen_at)
 |   $device->latestState — latest DeviceReading row (all fields)
+|   $deviceAvailability — MQTT availability snapshot for the selected meter
+|   $deviceIssue     — payload issue snapshot for the selected meter
+|   $currentSnapshot — range-independent "current" KPI payload
 |   $recentReadings  — NOT used anymore; data loaded entirely via AJAX
 |
-| API endpoint consumed:
+| API endpoints consumed:
 |   GET /api/devices/{id}/readings?range=1h&after=0
 |   → Returns JSON array of readings, oldest first
+|   GET /api/devices/{id}/status
+|   → Returns health, availability, issue, and current snapshot
 |   → See DeviceReadingController.php for the backend implementation
 |
 --}}
+@php($deviceHealth = $device->healthSnapshot())
+@php($deviceAvailability = $deviceAvailability ?? $device->availabilitySnapshot())
+@php($deviceIssue = $deviceIssue ?? $device->issueSnapshot())
+@php($currentSnapshotRecordedAt = data_get($currentSnapshot, 'recorded_at'))
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -154,7 +164,60 @@
             font-size: 13px;
             color: var(--muted);
         }
+        .meta-row > div {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
         .meta-row span { font-family: var(--font-mono); color: var(--text); }
+
+        .health-pill {
+            display: inline-flex;
+            align-items: center;
+            padding: 5px 10px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            font: 700 10px/1 var(--font-mono);
+            letter-spacing: .08em;
+            text-transform: uppercase;
+        }
+
+        .health-pill--online {
+            color: var(--green);
+            background: rgba(16,185,129,.12);
+            border-color: rgba(16,185,129,.25);
+        }
+
+        .health-pill--silent {
+            color: #fcd34d;
+            background: rgba(245,158,11,.12);
+            border-color: rgba(245,158,11,.25);
+        }
+
+        .health-pill--offline {
+            color: #fca5a5;
+            background: rgba(239,68,68,.12);
+            border-color: rgba(239,68,68,.25);
+        }
+
+        .health-pill--stale {
+            color: #fcd34d;
+            background: rgba(245,158,11,.12);
+            border-color: rgba(245,158,11,.25);
+        }
+
+        .health-pill--down {
+            color: #fca5a5;
+            background: rgba(239,68,68,.12);
+            border-color: rgba(239,68,68,.25);
+        }
+
+        .health-pill--never_seen,
+        .health-pill--disabled {
+            color: #cbd5e1;
+            background: rgba(148,163,184,.12);
+            border-color: rgba(148,163,184,.25);
+        }
 
         /* Top-right pill showing auto-refresh countdown */
         .header-right {
@@ -162,6 +225,40 @@
             flex-direction: column;
             align-items: flex-end;
             gap: 10px;
+        }
+
+        /* Device picker keeps the page scoped to one selected meter while the
+         * backend continues storing data for all active meters.
+         */
+        .device-picker {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .device-picker label {
+            color: var(--muted);
+            font: 700 10px/1 var(--font-mono);
+            letter-spacing: .12em;
+            text-transform: uppercase;
+        }
+
+        .device-picker select {
+            min-width: 240px;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--surface);
+            color: var(--text);
+            font: 400 14px/1.3 var(--font-body);
+        }
+
+        .device-picker select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(0,229,255,.12);
         }
 
         .live-pill {
@@ -199,6 +296,84 @@
             letter-spacing: .05em;
         }
         .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        .header-link {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        .status-stack {
+            display: grid;
+            gap: 12px;
+            margin: -12px 0 28px;
+        }
+
+        .status-banner {
+            padding: 14px 16px;
+            border-radius: 16px;
+            border: 1px solid transparent;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        .status-banner.is-hidden {
+            display: none;
+        }
+
+        .status-banner--online {
+            color: #d1fae5;
+            background: rgba(16,185,129,.12);
+            border-color: rgba(16,185,129,.25);
+        }
+
+        .status-banner--silent {
+            color: #fde68a;
+            background: rgba(245,158,11,.12);
+            border-color: rgba(245,158,11,.25);
+        }
+
+        .status-banner--offline {
+            color: #fecaca;
+            background: rgba(239,68,68,.12);
+            border-color: rgba(239,68,68,.25);
+        }
+
+        .status-banner--ok,
+        .status-banner--recovered {
+            color: #d1fae5;
+            background: rgba(16,185,129,.12);
+            border-color: rgba(16,185,129,.25);
+        }
+
+        .status-banner--stale {
+            color: #fde68a;
+            background: rgba(245,158,11,.12);
+            border-color: rgba(245,158,11,.25);
+        }
+
+        .status-banner--down,
+        .status-banner--error {
+            color: #fecaca;
+            background: rgba(239,68,68,.12);
+            border-color: rgba(239,68,68,.25);
+        }
+
+        .status-banner--never_seen,
+        .status-banner--disabled {
+            color: #cbd5e1;
+            background: rgba(148,163,184,.12);
+            border-color: rgba(148,163,184,.25);
+        }
 
         /* ─────────────────────────────────────────────────────────────
          * KPI CARDS  (always show the most recent reading — unaffected
@@ -474,6 +649,22 @@
             font-size: 12px;
             color: var(--muted);
         }
+
+        @media (max-width: 720px) {
+            .header-right,
+            .device-picker,
+            .header-actions {
+                width: 100%;
+                align-items: stretch;
+                justify-content: stretch;
+            }
+
+            .device-picker select,
+            .refresh-btn,
+            .header-link {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -497,22 +688,83 @@
             <div class="meta-row">
                 <div>Topic &nbsp;<span>{{ $device->mqtt_topic }}</span></div>
                 <div>Last Seen &nbsp;<span id="last_seen">{{ optional($device->last_seen_at)->toDateTimeString() ?? '—' }}</span></div>
+                <div>
+                    Health
+                    <span id="deviceHealthLabel" class="health-pill health-pill--{{ $deviceHealth['status'] }}">
+                        {{ $deviceHealth['label'] }}
+                    </span>
+                </div>
+                <div>
+                    Availability
+                    <span id="deviceAvailabilityLabel" class="health-pill health-pill--{{ $deviceAvailability['status'] }}">
+                        {{ $deviceAvailability['label'] }}
+                    </span>
+                </div>
             </div>
         </div>
 
         <div class="header-right">
+            {{-- Meter selector reloads the page with a scoped device id. --}}
+            <form method="GET" action="/" class="device-picker">
+                <label for="deviceSelect">Meter</label>
+                <select id="deviceSelect" name="device" onchange="this.form.submit()">
+                    @foreach ($devices as $meter)
+                        <option value="{{ $meter->id }}" @selected($device->id === $meter->id)>
+                            {{ $meter->name }}
+                        </option>
+                    @endforeach
+                </select>
+            </form>
+
             {{-- Live pill with auto-refresh countdown --}}
             <div class="live-pill">
                 <span class="badge-dot"></span>
                 Auto-refresh in <span id="refreshCountdown">30</span>s
             </div>
 
-            {{-- Manual refresh button — triggers immediate fetch --}}
-            <button class="refresh-btn" id="manualRefreshBtn" title="Refresh now">
-                ↻ &nbsp;Refresh Now
-            </button>
+            <div class="header-actions">
+                {{-- Manual refresh button — triggers immediate fetch --}}
+                <button class="refresh-btn" id="manualRefreshBtn" title="Refresh now">
+                    ↻ &nbsp;Refresh Now
+                </button>
+
+                <a class="refresh-btn header-link" href="/devices/manage">
+                    Manage Meters
+                </a>
+            </div>
         </div>
     </header>
+
+    <div class="status-stack">
+        <div
+            id="deviceHealthBanner"
+            class="status-banner status-banner--{{ $deviceHealth['status'] }}{{ $deviceHealth['status'] === 'online' ? ' is-hidden' : '' }}"
+            role="status"
+            aria-live="polite"
+        >
+            {{ $deviceHealth['message'] }}
+        </div>
+
+        <div
+            id="deviceIssueBanner"
+            class="status-banner status-banner--{{ $deviceIssue['status'] }}{{ in_array($deviceIssue['status'], ['error', 'recovered'], true) ? '' : ' is-hidden' }}"
+            role="status"
+            aria-live="polite"
+        >
+            {{ $deviceIssue['message'] }}
+        </div>
+
+        <div
+            id="deviceAvailabilityBanner"
+            class="status-banner status-banner--{{ $deviceAvailability['status'] }}{{ $deviceAvailability['status'] === 'online' ? ' is-hidden' : '' }}"
+            role="status"
+            aria-live="polite"
+        >
+            {{ $deviceAvailability['message'] }}
+        </div>
+
+        <div id="connectionBanner" class="status-banner status-banner--error is-hidden" role="status" aria-live="polite"></div>
+    </div>
 
     {{-- ══════════════════════════════════════════════════════════
          KPI CARDS
@@ -523,49 +775,49 @@
         <div class="kpi kpi--voltage">
             <span class="kpi-icon">⚡</span>
             <div class="kpi-label">Voltage</div>
-            <div class="kpi-value" id="kpi-voltage">{{ $device->latestState->voltage ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-voltage">{{ data_get($currentSnapshot, 'voltage') ?? '—' }}</div>
             <div class="kpi-unit">V</div>
         </div>
 
         <div class="kpi kpi--current">
             <span class="kpi-icon">〜</span>
             <div class="kpi-label">Current</div>
-            <div class="kpi-value" id="kpi-current">{{ $device->latestState->current ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-current">{{ data_get($currentSnapshot, 'current') ?? '—' }}</div>
             <div class="kpi-unit">A</div>
         </div>
 
         <div class="kpi kpi--power">
             <span class="kpi-icon">◈</span>
             <div class="kpi-label">Power</div>
-            <div class="kpi-value" id="kpi-power">{{ $device->latestState->power ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-power">{{ data_get($currentSnapshot, 'power') ?? '—' }}</div>
             <div class="kpi-unit">W</div>
         </div>
 
         <div class="kpi kpi--energy-c">
             <span class="kpi-icon">◉</span>
             <div class="kpi-label">Computed Energy</div>
-            <div class="kpi-value" id="kpi-energy-c">{{ $device->latestState->energy_computed_wh ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-energy-c">{{ data_get($currentSnapshot, 'energy_computed_wh') ?? '—' }}</div>
             <div class="kpi-unit">Wh</div>
         </div>
 
         <div class="kpi kpi--energy-p">
             <span class="kpi-icon">◎</span>
             <div class="kpi-label">PZEM Energy</div>
-            <div class="kpi-value" id="kpi-energy-p">{{ $device->latestState->energy_pzem_wh ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-energy-p">{{ data_get($currentSnapshot, 'energy_pzem_wh') ?? '—' }}</div>
             <div class="kpi-unit">Wh</div>
         </div>
 
         <div class="kpi kpi--freq">
             <span class="kpi-icon">≋</span>
             <div class="kpi-label">Frequency</div>
-            <div class="kpi-value" id="kpi-freq">{{ $device->latestState->frequency ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-freq">{{ data_get($currentSnapshot, 'frequency') ?? '—' }}</div>
             <div class="kpi-unit">Hz</div>
         </div>
 
         <div class="kpi kpi--pf">
             <span class="kpi-icon">∿</span>
             <div class="kpi-label">Power Factor</div>
-            <div class="kpi-value" id="kpi-pf">{{ $device->latestState->pf ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-pf">{{ data_get($currentSnapshot, 'pf') ?? '—' }}</div>
             <div class="kpi-unit">PF</div>
         </div>
 
@@ -574,9 +826,9 @@
             <div class="kpi-label">Last Reading</div>
             {{-- Two-line: date on top, time bold below --}}
             <div class="kpi-value" id="kpi-ts" style="font-size:13px; line-height:1.5">
-                {{ optional($device->latestState->created_at)->format('d M Y') ?? '—' }}<br>
+                {{ optional($currentSnapshotRecordedAt ? \Illuminate\Support\Carbon::parse($currentSnapshotRecordedAt) : null)->format('d M Y') ?? '—' }}<br>
                 <span style="font-size:19px">
-                    {{ optional($device->latestState->created_at)->format('H:i:s') ?? '' }}
+                    {{ optional($currentSnapshotRecordedAt ? \Illuminate\Support\Carbon::parse($currentSnapshotRecordedAt) : null)->format('H:i:s') ?? '' }}
                 </span>
             </div>
         </div>
@@ -717,6 +969,19 @@ const DEVICE_ID = {{ $device->id }};
 
 /** Base API endpoint. Query params are appended dynamically. */
 const API_BASE = `/api/devices/${DEVICE_ID}/readings`;
+const STATUS_API_BASE = `/api/devices/${DEVICE_ID}/status`;
+
+/** Initial health snapshot rendered by Blade. */
+const INITIAL_DEVICE_HEALTH = @json($deviceHealth);
+
+/** Initial availability snapshot rendered by Blade. */
+const INITIAL_DEVICE_AVAILABILITY = @json($deviceAvailability);
+
+/** Initial payload issue snapshot rendered by Blade. */
+const INITIAL_DEVICE_ISSUE = @json($deviceIssue);
+
+/** Range-independent current KPI snapshot rendered by Blade. */
+const INITIAL_CURRENT_SNAPSHOT = @json($currentSnapshot);
 
 /**
  * How often (in seconds) to poll for new data silently in the background.
@@ -734,12 +999,13 @@ const REFRESH_INTERVAL = 30; // seconds
 let activeRange = '1h';
 
 /**
- * The highest reading ID we have received so far.
- * Sent as ?after=<id> on background refreshes so the backend
- * returns ONLY rows newer than this — avoids re-fetching old data.
- * Starts at 0 meaning "give me everything for this range".
+ * Tie-breaker for incremental refreshes when two rows share the same
+ * recorded-at second.
  */
 let lastKnownId = 0;
+
+/** Latest effective recorded-at timestamp known to the dashboard. */
+let lastKnownRecordedAt = null;
 
 /**
  * In-memory array of ALL readings for the current range.
@@ -753,6 +1019,18 @@ let autoRefreshTimer = null;
 
 /** Countdown value shown in the live-pill. */
 let countdownSeconds = REFRESH_INTERVAL;
+
+/** Latest successful telemetry timestamp used to compute live health state. */
+let currentLastSeenAt = INITIAL_DEVICE_HEALTH.last_seen_at;
+
+/** Current MQTT availability state for the selected device. */
+let currentAvailabilityState = INITIAL_DEVICE_AVAILABILITY;
+
+/** Active payload issue state for the selected device. */
+let currentIssueState = INITIAL_DEVICE_ISSUE;
+
+/** Current KPI snapshot stays independent from the selected chart range. */
+let currentSnapshot = INITIAL_CURRENT_SNAPSHOT;
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -935,6 +1213,131 @@ function fmtTableCell(dateStr, range) {
 }
 
 /**
+ * Format a timestamp for operator-facing date/time labels.
+ *
+ * @param {string|null|undefined} dateStr
+ * @returns {Object} Object with `date` and `time` string keys.
+ */
+function formatTimestampParts(dateStr) {
+    const parsed = dateStr ? new Date(dateStr) : null;
+
+    if (!parsed || Number.isNaN(parsed.valueOf())) {
+        return { date: '—', time: '' };
+    }
+
+    return {
+        date: parsed.toLocaleDateString('en-GB', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        }),
+        time: parsed.toLocaleTimeString('en-GB', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+        }),
+    };
+}
+
+/**
+ * Parse a timestamp if possible, otherwise return null.
+ *
+ * @param {string|null|undefined} dateStr
+ * @returns {Date|null}
+ */
+function parseTimestamp(dateStr) {
+    if (!dateStr) {
+        return null;
+    }
+
+    const parsed = new Date(dateStr);
+
+    return Number.isNaN(parsed.valueOf()) ? null : parsed;
+}
+
+/**
+ * Sort readings newest-first by effective recorded time, then by id.
+ *
+ * @param {object} a
+ * @param {object} b
+ * @returns {number}
+ */
+function compareReadingsNewestFirst(a, b) {
+    const aTime = parseTimestamp(a?.created_at)?.getTime() ?? 0;
+    const bTime = parseTimestamp(b?.created_at)?.getTime() ?? 0;
+
+    if (aTime !== bTime) {
+        return bTime - aTime;
+    }
+
+    return Number(b?.id ?? 0) - Number(a?.id ?? 0);
+}
+
+/**
+ * Update the incremental refresh cursor from the latest row in API order.
+ *
+ * @param {Array} readings
+ */
+function syncReadingsCursor(readings) {
+    if (!readings.length) {
+        return;
+    }
+
+    const latestReading = readings[readings.length - 1];
+
+    lastKnownId = Number(latestReading?.id ?? 0);
+    lastKnownRecordedAt = latestReading?.created_at ?? null;
+}
+
+/**
+ * Merge incoming readings into the in-memory store without duplicating ids.
+ * Updated rows are re-sorted by their effective recorded-at timestamp.
+ *
+ * @param {Array} incomingReadings
+ */
+function mergeIncomingReadings(incomingReadings) {
+    const readingsById = new Map(
+        allReadings.map(reading => [Number(reading.id), reading])
+    );
+
+    incomingReadings.forEach(reading => {
+        const readingId = Number(reading.id);
+        const existing = readingsById.get(readingId) ?? {};
+
+        readingsById.set(readingId, {
+            ...existing,
+            ...reading,
+        });
+    });
+
+    allReadings = Array.from(readingsById.values()).sort(compareReadingsNewestFirst);
+}
+
+/**
+ * Build a KPI snapshot from a reading-like payload.
+ *
+ * @param {object|null} reading
+ * @param {string|null|undefined} recordedAt
+ * @returns {object|null}
+ */
+function makeSnapshotFromReading(reading, recordedAt = null) {
+    if (!reading) {
+        return null;
+    }
+
+    return {
+        voltage: reading.voltage ?? null,
+        current: reading.current ?? null,
+        power: reading.power ?? null,
+        energy_computed_wh: reading.energy_computed_wh ?? null,
+        energy_pzem_wh: reading.energy_pzem_wh ?? null,
+        frequency: reading.frequency ?? null,
+        pf: reading.pf ?? null,
+        recorded_at: recordedAt ?? reading.created_at ?? reading.received_at ?? null,
+    };
+}
+
+/**
  * Maps a power-factor value to a colour.
  * ≥ 0.9  → green   (good)
  * ≥ 0.7  → amber   (acceptable)
@@ -951,6 +1354,338 @@ function pfColor(v, alpha = 1) {
     return alpha < 1
         ? `rgba(${r},${g},${b},${alpha})`
         : `rgb(${r},${g},${b})`;
+}
+
+/**
+ * Render seconds as a short age string for health messages.
+ *
+ * @param {number} totalSeconds
+ * @returns {string}
+ */
+function formatElapsedSeconds(totalSeconds) {
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes < 60) {
+        return seconds === 0 ? `${minutes}m` : `${minutes}m ${seconds}s`;
+    }
+
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+
+    if (hours < 24) {
+        return remainingMinutes === 0 ? `${hours}h` : `${hours}h ${remainingMinutes}m`;
+    }
+
+    const days = Math.floor(hours / 24);
+    const remainingHours = hours % 24;
+
+    return remainingHours === 0 ? `${days}d` : `${days}d ${remainingHours}h`;
+}
+
+/**
+ * Compute the current device health state from the latest telemetry timestamp.
+ *
+ * @returns {object}
+ */
+function computeDeviceHealthState() {
+    const staleAfterSeconds = Number(INITIAL_DEVICE_HEALTH.stale_after_seconds ?? 180);
+    const downAfterSeconds = Number(INITIAL_DEVICE_HEALTH.down_after_seconds ?? 600);
+
+    if (!INITIAL_DEVICE_HEALTH.is_enabled) {
+        return {
+            status: 'disabled',
+            label: 'Disabled',
+            message: 'Monitoring is disabled for this meter.',
+        };
+    }
+
+    if (!currentLastSeenAt) {
+        return {
+            status: 'never_seen',
+            label: 'Never Seen',
+            message: 'No telemetry has been received from this meter yet.',
+        };
+    }
+
+    const parsedLastSeenAt = new Date(currentLastSeenAt);
+
+    if (Number.isNaN(parsedLastSeenAt.valueOf())) {
+        return {
+            status: 'never_seen',
+            label: 'Never Seen',
+            message: 'No telemetry has been received from this meter yet.',
+        };
+    }
+
+    const secondsSinceLastSeen = Math.max(0, Math.floor((Date.now() - parsedLastSeenAt.getTime()) / 1000));
+    const ageText = formatElapsedSeconds(secondsSinceLastSeen);
+
+    if (secondsSinceLastSeen >= downAfterSeconds) {
+        return {
+            status: 'down',
+            label: 'Down',
+            message: `Meter appears down. No telemetry has been received for ${ageText}.`,
+        };
+    }
+
+    if (secondsSinceLastSeen >= staleAfterSeconds) {
+        return {
+            status: 'stale',
+            label: 'Stale',
+            message: `Telemetry is delayed. Last reading was ${ageText} ago.`,
+        };
+    }
+
+    return {
+        status: 'online',
+        label: 'Online',
+        message: `Meter is live. Telemetry was received ${ageText} ago.`,
+    };
+}
+
+/**
+ * Apply the computed device health to the badge and banner.
+ *
+ * @param {object} healthState
+ */
+function applyDeviceHealthState(healthState) {
+    const labelEl = document.getElementById('deviceHealthLabel');
+    const bannerEl = document.getElementById('deviceHealthBanner');
+
+    if (labelEl) {
+        labelEl.textContent = healthState.label;
+        labelEl.className = `health-pill health-pill--${healthState.status}`;
+    }
+
+    if (!bannerEl) {
+        return;
+    }
+
+    bannerEl.textContent = healthState.message;
+    bannerEl.className = `status-banner status-banner--${healthState.status}`;
+
+    if (healthState.status === 'online') {
+        bannerEl.classList.add('is-hidden');
+    }
+}
+
+/** Recompute and apply meter health from the current last-seen timestamp. */
+function refreshDeviceHealth() {
+    const healthState = computeDeviceHealthState();
+
+    applyDeviceHealthState(healthState);
+    refreshAvailabilityFromHealth(healthState);
+
+    if (currentIssueState?.status === 'recovered' && healthState.status !== 'online') {
+        currentIssueState = {
+            ...(currentIssueState ?? {}),
+            status: 'ok',
+            label: 'No Issue',
+            message: 'No active payload issues.',
+            has_issue: false,
+        };
+
+        applyDeviceIssueState(currentIssueState);
+    }
+}
+
+/**
+ * Apply the availability state to the header pill and the dedicated banner.
+ *
+ * @param {object|null} availabilityState
+ */
+function applyDeviceAvailabilityState(availabilityState) {
+    const labelEl = document.getElementById('deviceAvailabilityLabel');
+    const bannerEl = document.getElementById('deviceAvailabilityBanner');
+
+    if (labelEl && availabilityState) {
+        labelEl.textContent = availabilityState.label ?? 'Unknown';
+        labelEl.className = `health-pill health-pill--${availabilityState.status ?? 'unknown'}`;
+    }
+
+    if (!bannerEl || !availabilityState) {
+        return;
+    }
+
+    bannerEl.textContent = availabilityState.message ?? 'No MQTT availability message has been received for this meter yet.';
+    bannerEl.className = `status-banner status-banner--${availabilityState.status ?? 'unknown'}`;
+
+    if (availabilityState.status === 'online') {
+        bannerEl.classList.add('is-hidden');
+    }
+}
+
+/**
+ * Keep "online" availability in sync with the live health timer so a meter can
+ * become "silent" without waiting for the next status poll.
+ *
+ * @param {object} healthState
+ */
+function refreshAvailabilityFromHealth(healthState) {
+    if (!currentAvailabilityState) {
+        return;
+    }
+
+    if (
+        !['online', 'heartbeat'].includes(currentAvailabilityState.raw_status ?? '')
+        && !['online', 'silent'].includes(currentAvailabilityState.status ?? '')
+    ) {
+        return;
+    }
+
+    const nextStatus = ['stale', 'down'].includes(healthState.status) ? 'silent' : 'online';
+
+    if (currentAvailabilityState.status === nextStatus) {
+        return;
+    }
+
+    currentAvailabilityState = {
+        ...currentAvailabilityState,
+        status: nextStatus,
+        label: nextStatus === 'silent' ? 'Silent' : 'Online',
+        message: nextStatus === 'silent'
+            ? 'MQTT availability reports this meter online, but telemetry is currently delayed or down.'
+            : 'MQTT availability reports this meter online.',
+    };
+
+    applyDeviceAvailabilityState(currentAvailabilityState);
+}
+
+/**
+ * Apply the payload issue state to the dedicated dashboard banner.
+ *
+ * @param {object|null} issueState
+ */
+function applyDeviceIssueState(issueState) {
+    const bannerEl = document.getElementById('deviceIssueBanner');
+
+    if (!bannerEl || !issueState) {
+        return;
+    }
+
+    bannerEl.textContent = issueState.message ?? 'No active payload issues.';
+    bannerEl.className = `status-banner status-banner--${issueState.status ?? 'ok'}`;
+
+    if (!issueState.has_issue && issueState.status !== 'recovered') {
+        bannerEl.classList.add('is-hidden');
+    }
+}
+
+/**
+ * Clear the active issue banner immediately when valid telemetry resumes.
+ *
+ * @param {string|null|undefined} recoveredAt
+ */
+function clearActiveIssueState(recoveredAt = null) {
+    if (!currentIssueState?.has_issue && currentIssueState?.status !== 'recovered') {
+        return;
+    }
+
+    if (!currentIssueState?.has_issue && currentIssueState?.status === 'recovered') {
+        currentIssueState = {
+            ...(currentIssueState ?? {}),
+            status: 'ok',
+            label: 'No Issue',
+            message: 'No active payload issues.',
+            has_issue: false,
+        };
+
+        applyDeviceIssueState(currentIssueState);
+        return;
+    }
+
+    currentIssueState = {
+        ...(currentIssueState ?? {}),
+        status: 'recovered',
+        label: 'Recovered',
+        message: 'Valid telemetry resumed.',
+        has_issue: false,
+        last_recovered_at: recoveredAt ?? new Date().toISOString(),
+    };
+
+    applyDeviceIssueState(currentIssueState);
+}
+
+/**
+ * Fetch the latest runtime status snapshots for the selected device.
+ *
+ * @returns {Promise<object>}
+ */
+async function fetchDeviceStatus() {
+    const response = await fetch(STATUS_API_BASE, {
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    });
+
+    if (!response.ok) {
+        throw new Error(`Status API error: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json();
+}
+
+/**
+ * Apply the latest runtime status payload returned by the status endpoint.
+ *
+ * @param {object|null} statusPayload
+ */
+function applyRuntimeStatus(statusPayload) {
+    if (!statusPayload) {
+        return;
+    }
+
+    if (statusPayload.availability) {
+        currentAvailabilityState = statusPayload.availability;
+        applyDeviceAvailabilityState(currentAvailabilityState);
+    }
+
+    if (statusPayload.health?.last_seen_at) {
+        updateLastSeen(statusPayload.health.last_seen_at);
+    } else {
+        currentLastSeenAt = statusPayload.health?.last_seen_at ?? currentLastSeenAt;
+        refreshDeviceHealth();
+    }
+
+    if (statusPayload.issue) {
+        currentIssueState = statusPayload.issue;
+        applyDeviceIssueState(currentIssueState);
+    }
+
+    if (statusPayload.current_snapshot) {
+        updateCurrentSnapshot(statusPayload.current_snapshot);
+    }
+}
+
+/**
+ * Surface dashboard-side refresh problems without confusing them with meter health.
+ *
+ * @param {string} message
+ */
+function showConnectionIssue(message) {
+    const banner = document.getElementById('connectionBanner');
+
+    if (!banner) {
+        return;
+    }
+
+    banner.textContent = message;
+    banner.classList.remove('is-hidden');
+}
+
+/** Hide the dashboard connection banner after a successful refresh. */
+function clearConnectionIssue() {
+    const banner = document.getElementById('connectionBanner');
+
+    if (!banner) {
+        return;
+    }
+
+    banner.textContent = '';
+    banner.classList.add('is-hidden');
 }
 
 
@@ -1011,35 +1746,55 @@ function updateCharts(readings, range) {
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 6. KPI CARD UPDATER
- * Picks the most recent reading from allReadings (index 0, since
- * allReadings is stored newest-first) and refreshes the KPI cards.
+ * Keeps the top KPI strip tied to the latest known device snapshot,
+ * not the currently selected chart/table range.
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * Updates the 8 live KPI cards with the most recent reading values.
- * Called after every fetch (full load or background refresh).
+ * Updates the 8 live KPI cards with the current snapshot values.
  */
 function updateKPIs() {
-    if (!allReadings.length) return;
+    const snapshot = currentSnapshot;
+    const timestampParts = formatTimestampParts(snapshot?.recorded_at);
 
-    const latest = allReadings[0]; // index 0 = newest (we store newest-first)
+    document.getElementById('kpi-voltage').textContent  = snapshot?.voltage            ?? '—';
+    document.getElementById('kpi-current').textContent  = snapshot?.current            ?? '—';
+    document.getElementById('kpi-power').textContent    = snapshot?.power              ?? '—';
+    document.getElementById('kpi-energy-c').textContent = snapshot?.energy_computed_wh ?? '—';
+    document.getElementById('kpi-energy-p').textContent = snapshot?.energy_pzem_wh     ?? '—';
+    document.getElementById('kpi-freq').textContent     = snapshot?.frequency          ?? '—';
+    document.getElementById('kpi-pf').textContent       = snapshot?.pf                 ?? '—';
+    document.getElementById('kpi-ts').innerHTML =
+        `${timestampParts.date}<br><span style="font-size:19px">${timestampParts.time}</span>`;
+}
 
-    document.getElementById('kpi-voltage').textContent  = latest.voltage             ?? '—';
-    document.getElementById('kpi-current').textContent  = latest.current             ?? '—';
-    document.getElementById('kpi-power').textContent    = latest.power               ?? '—';
-    document.getElementById('kpi-energy-c').textContent = latest.energy_computed_wh  ?? '—';
-    document.getElementById('kpi-energy-p').textContent = latest.energy_pzem_wh      ?? '—';
-    document.getElementById('kpi-freq').textContent     = latest.frequency           ?? '—';
-    document.getElementById('kpi-pf').textContent       = latest.pf                  ?? '—';
-
-    // Format the "Last Reading" card as two lines: date + time
-    if (latest.created_at) {
-        const d = new Date(latest.created_at);
-        const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-        const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        document.getElementById('kpi-ts').innerHTML =
-            `${date}<br><span style="font-size:19px">${time}</span>`;
+/**
+ * Promote a reading to the current KPI snapshot when it is at least as recent
+ * as the snapshot we already have. This keeps the KPI cards stable while the
+ * chart/table range is changed underneath them.
+ *
+ * @param {object|null} nextSnapshot
+ */
+function updateCurrentSnapshot(nextSnapshot) {
+    if (!nextSnapshot) {
+        return;
     }
+
+    const nextRecordedAt = parseTimestamp(nextSnapshot.recorded_at);
+    const currentRecordedAt = parseTimestamp(currentSnapshot?.recorded_at);
+
+    if (!currentSnapshot || !currentRecordedAt) {
+        currentSnapshot = nextSnapshot;
+        updateKPIs();
+        return;
+    }
+
+    if (!nextRecordedAt || nextRecordedAt < currentRecordedAt) {
+        return;
+    }
+
+    currentSnapshot = nextSnapshot;
+    updateKPIs();
 }
 
 /**
@@ -1049,6 +1804,8 @@ function updateKPIs() {
  */
 function updateLastSeen(dateStr) {
     if (!dateStr) return;
+
+    currentLastSeenAt = dateStr;
 
     const d = new Date(dateStr);
 
@@ -1062,6 +1819,8 @@ function updateLastSeen(dateStr) {
             minute: '2-digit',
             second: '2-digit',
         });
+
+    refreshDeviceHealth();
 }
 
 /**
@@ -1084,7 +1843,8 @@ function normalizeRealtimeReading(eventPayload) {
 
     return {
         id: readingId,
-        created_at: reading.created_at ?? reading.received_at ?? new Date().toISOString(),
+        created_at: reading.received_at ?? reading.created_at ?? new Date().toISOString(),
+        received_at: reading.received_at ?? null,
         voltage: reading.voltage ?? null,
         current: reading.current ?? null,
         power: reading.power ?? null,
@@ -1093,6 +1853,23 @@ function normalizeRealtimeReading(eventPayload) {
         frequency: reading.frequency ?? null,
         pf: reading.pf ?? null,
     };
+}
+
+/**
+ * Normalize a realtime event into the range-independent KPI snapshot shape.
+ *
+ * @param {object} eventPayload
+ * @returns {object|null}
+ */
+function normalizeRealtimeSnapshot(eventPayload) {
+    if (!eventPayload || Number(eventPayload.device_id) !== DEVICE_ID || !eventPayload.reading) {
+        return null;
+    }
+
+    return makeSnapshotFromReading(
+        eventPayload.reading,
+        eventPayload.last_seen_at ?? eventPayload.reading.received_at ?? eventPayload.reading.created_at ?? null,
+    );
 }
 
 /**
@@ -1144,7 +1921,23 @@ function ingestRealtimeReading(eventPayload) {
 
     updateLastSeen(eventPayload.last_seen_at ?? eventPayload.reading.received_at);
 
-    if (allReadings.some(row => Number(row.id) === reading.id)) {
+    // Out-of-order packets are still useful history, but the backend marks
+    // them so they cannot move the range-independent KPI strip backward.
+    if (eventPayload.latest_state_updated !== false) {
+        updateCurrentSnapshot(normalizeRealtimeSnapshot(eventPayload));
+    }
+
+    clearActiveIssueState(eventPayload.last_seen_at ?? eventPayload.reading.received_at);
+    restoreAvailabilityFromTelemetry();
+
+    const existingReadingIndex = allReadings.findIndex(row => Number(row.id) === reading.id);
+
+    if (existingReadingIndex !== -1) {
+        mergeIncomingReadings([reading]);
+        syncReadingsCursor([...allReadings].slice().reverse());
+
+        updateCharts([...allReadings].reverse(), activeRange);
+        updateTable(activeRange, 0);
         return;
     }
 
@@ -1152,13 +1945,55 @@ function ingestRealtimeReading(eventPayload) {
         return;
     }
 
-    allReadings = [reading, ...allReadings];
-    lastKnownId = Math.max(lastKnownId, reading.id);
+    mergeIncomingReadings([reading]);
+    syncReadingsCursor([...allReadings].slice().reverse());
 
     updateCharts([...allReadings].reverse(), activeRange);
     updateTable(activeRange, 1);
     updateKPIs();
     showNewBadge(1);
+}
+
+/**
+ * If telemetry arrives after an offline/silent state, reflect that immediately.
+ */
+function restoreAvailabilityFromTelemetry() {
+    if (!currentAvailabilityState || ['disabled', 'unknown'].includes(currentAvailabilityState.status ?? 'unknown')) {
+        return;
+    }
+
+    const cameBackAfterOffline = currentAvailabilityState.status === 'offline' || currentAvailabilityState.raw_status === 'offline';
+
+    currentAvailabilityState = {
+        ...currentAvailabilityState,
+        raw_status: 'online',
+        status: 'online',
+        label: 'Online',
+        message: cameBackAfterOffline
+            ? 'Telemetry resumed after the last offline availability signal.'
+            : 'MQTT availability reports this meter online.',
+    };
+
+    applyDeviceAvailabilityState(currentAvailabilityState);
+}
+
+/**
+ * Apply a realtime availability event without waiting for the next poll.
+ *
+ * @param {object} eventPayload
+ */
+function ingestAvailabilityUpdate(eventPayload) {
+    if (!eventPayload || Number(eventPayload.device_id) !== Number(DEVICE_ID) || !eventPayload.availability) {
+        return;
+    }
+
+    currentAvailabilityState = eventPayload.availability;
+    applyDeviceAvailabilityState(currentAvailabilityState);
+
+    if (eventPayload.health?.last_seen_at) {
+        currentLastSeenAt = eventPayload.health.last_seen_at;
+        refreshDeviceHealth();
+    }
 }
 
 
@@ -1221,18 +2056,25 @@ function updateTable(range, newRowCount = 0) {
  *   → returns all readings in the window, oldest first
  *
  * On a BACKGROUND REFRESH:
- *   GET /api/devices/{id}/readings?range=1h&after=<lastKnownId>
- *   → returns only rows with id > lastKnownId, oldest first
+ *   GET /api/devices/{id}/readings?range=1h&after_received_at=<timestamp>&after_id=<id>
+ *   → returns only rows recorded after the latest row the UI has seen
  *   → if nothing new, returns an empty array
  *
  * @param {string}  range      — range key to send
- * @param {number}  afterId    — only return rows with id > this (0 = all)
+ * @param {number}  afterId    — row id tie-breaker for same-second readings
+ * @param {string|null} afterRecordedAt — effective recorded-at cursor
  * @returns {Promise<Array>}   — array of reading objects, oldest first
  * @throws  on network/parse errors
  */
-async function fetchReadings(range, afterId = 0) {
+async function fetchReadings(range, afterId = 0, afterRecordedAt = null) {
     let url = `${API_BASE}?range=${range}`;
-    if (afterId > 0) url += `&after=${afterId}`;
+
+    if (afterRecordedAt) {
+        url += `&after_received_at=${encodeURIComponent(afterRecordedAt)}`;
+        url += `&after_id=${afterId}`;
+    } else if (afterId > 0) {
+        url += `&after=${afterId}`;
+    }
 
     const response = await fetch(url, {
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -1258,7 +2100,7 @@ async function fetchReadings(range, afterId = 0) {
 /**
  * Performs a complete data reload for the given range.
  * Displays a blocking spinner while loading.
- * Resets lastKnownId so subsequent background fetches start fresh.
+ * Resets the incremental cursor so subsequent background fetches start fresh.
  *
  * @param {string} range  — range key to load
  */
@@ -1268,27 +2110,32 @@ async function fullLoad(range) {
     document.getElementById('tableLoader').classList.add('show');
 
     try {
-        const readings = await fetchReadings(range, 0);
+        const [readings, statusPayload] = await Promise.all([
+            fetchReadings(range, 0),
+            fetchDeviceStatus(),
+        ]);
 
         /*
          * API returns oldest → newest. We want:
          *   - allReadings stored  newest-first  (table reads top=newest)
          *   - charts plotted      oldest-first  (time flows left → right)
          */
-        allReadings = [...readings].reverse(); // newest at index 0
-
-        // Track the highest id we have received
-        if (readings.length) {
-            lastKnownId = Math.max(...readings.map(r => r.id ?? 0));
-        }
+        allReadings = [...readings].sort(compareReadingsNewestFirst);
+        syncReadingsCursor(readings);
 
         // Update the UI
         updateCharts(readings, range);      // pass oldest-first (as received)
         updateTable(range, 0);             // no flash on full load
-        updateKPIs();
+        clearConnectionIssue();
+        applyRuntimeStatus(statusPayload);
+
+        if (!currentSnapshot) {
+            updateCurrentSnapshot(makeSnapshotFromReading(readings[readings.length - 1] ?? null));
+        }
 
     } catch (err) {
         console.error('[MeterDash] fullLoad failed:', err);
+        showConnectionIssue('Dashboard connection issue. Readings could not be refreshed, so meter health is based on the last successful telemetry timestamp.');
         document.getElementById('readings-body').innerHTML =
             `<tr><td colspan="8"><div class="empty-state">
                 ⚠ Failed to load data. Check console.
@@ -1319,22 +2166,26 @@ async function fullLoad(range) {
 async function backgroundRefresh() {
     try {
         // Fetch only rows newer than what we already have
-        const newRows = await fetchReadings(activeRange, lastKnownId);
+        const [newRows, statusPayload] = await Promise.all([
+            fetchReadings(activeRange, lastKnownId, lastKnownRecordedAt),
+            fetchDeviceStatus(),
+        ]);
+        clearConnectionIssue();
+        applyRuntimeStatus(statusPayload);
 
         if (!newRows.length) {
             // Nothing new — no UI update needed
             return;
         }
 
-        // Update the cursor to the newest id in this batch
-        lastKnownId = Math.max(lastKnownId, ...newRows.map(r => r.id ?? 0));
+        syncReadingsCursor(newRows);
 
         /*
          * newRows is oldest→newest (API order).
          * Prepend reversed newRows to allReadings so allReadings stays newest-first.
          */
-        const newRowsNewestFirst = [...newRows].reverse();
-        allReadings = [...newRowsNewestFirst, ...allReadings];
+        const newRowsNewestFirst = [...newRows].sort(compareReadingsNewestFirst);
+        mergeIncomingReadings(newRows);
 
         // Rebuild charts with the full dataset (oldest→newest order)
         const chartOrder = [...allReadings].reverse();
@@ -1343,15 +2194,24 @@ async function backgroundRefresh() {
         // Rebuild table — pass newRows.length so they get the flash animation
         updateTable(activeRange, newRowsNewestFirst.length);
 
-        // Update KPI cards with the latest reading
-        updateKPIs();
+        /*
+         * KPI cards are driven by /status current_snapshot instead of the newest
+         * polled row. That preserves the backend's monotonic latest-state rule
+         * when delayed MQTT packets arrive after a newer sample.
+         */
 
         // Show the "N new readings" badge briefly
         showNewBadge(newRowsNewestFirst.length);
 
+        const latestReading = newRows[newRows.length - 1] ?? null;
+
+        if (latestReading?.created_at) {
+            updateLastSeen(latestReading.created_at);
+        }
+
     } catch (err) {
-        // Silent refresh: log the error but don't show anything to the user
         console.warn('[MeterDash] backgroundRefresh failed:', err);
+        showConnectionIssue('Dashboard connection issue. Background refresh failed, so meter health is based on the last successful telemetry timestamp.');
     }
 }
 
@@ -1371,10 +2231,12 @@ function startAutoRefresh() {
 
     countdownSeconds = REFRESH_INTERVAL;
     updateCountdownDisplay();
+    refreshDeviceHealth();
 
     autoRefreshTimer = setInterval(async () => {
         countdownSeconds--;
         updateCountdownDisplay();
+        refreshDeviceHealth();
 
         if (countdownSeconds <= 0) {
             // Time to refresh — reset countdown and fetch new data
@@ -1436,9 +2298,10 @@ document.querySelectorAll('.range-btn').forEach(btn => {
         document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
-        activeRange  = btn.dataset.range;
-        lastKnownId  = 0;          // reset cursor — fetch everything fresh
-        allReadings  = [];         // clear local cache
+        activeRange = btn.dataset.range;
+        lastKnownId = 0;
+        lastKnownRecordedAt = null;
+        allReadings = [];
 
         await fullLoad(activeRange);
         startAutoRefresh();        // restart countdown from 30s
@@ -1455,7 +2318,20 @@ document.getElementById('manualRefreshBtn').addEventListener('click', async () =
 });
 
 window.addEventListener('meter-reading-updated', (event) => {
+    // Ignore other meters so the selected dashboard never mixes device data.
+    if (Number(event.detail.device_id) !== Number(DEVICE_ID)) {
+        return;
+    }
+
     ingestRealtimeReading(event.detail);
+});
+
+window.addEventListener('meter-availability-updated', (event) => {
+    if (Number(event.detail.device_id) !== Number(DEVICE_ID)) {
+        return;
+    }
+
+    ingestAvailabilityUpdate(event.detail);
 });
 
 
@@ -1463,6 +2339,9 @@ window.addEventListener('meter-reading-updated', (event) => {
  * 14. BOOT — runs once when the page is ready
  * ═══════════════════════════════════════════════════════════════════════ */
 (async () => {
+    updateKPIs();
+    applyDeviceAvailabilityState(currentAvailabilityState);
+    refreshDeviceHealth();
     await fullLoad(activeRange);   // first data load (shows spinner)
     startAutoRefresh();            // begin the 30-second polling cycle
 })();

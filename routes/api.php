@@ -57,7 +57,9 @@ use App\Http\Controllers\Api\DeviceController;
 
 Route::get('/devices', [DeviceController::class, 'index']);
 Route::post('/devices', [DeviceController::class, 'store']);
-Route::get('/devices/{id}', [DeviceController::class, 'show']);
+Route::get('/devices/{device}', [DeviceController::class, 'show']);
+Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
+Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
 Route::get('/devices/{device}/readings', [DeviceReadingController::class, 'index']);
 Route::get('/devices/{id}/snapshot', [DeviceController::class, 'readings']);
 // use Illuminate\Http\Request;
