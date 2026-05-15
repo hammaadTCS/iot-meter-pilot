@@ -1,0 +1,64 @@
+Sr.,Task,Deadline,Sub Task,Sub Task Deadline,Responsible,Project,Priority,Status,Progress,Key Remarks / Issues,Escalation
+1,"PHP, IoT & Foundations",27-Feb-2026,"Environment setup (Laravel, Composer, MySQL, VS Code, Git)",25-Feb-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Foundation phase closed successfully before March implementation work started.,-
+,,,"PHP basics practice (forms, functions, DB connection)",26-Feb-2026,,,,,,,
+,,,"IoT fundamentals study (smart homes, industrial sensors, energy meters)",26-Feb-2026,,,,,,,
+,,,Initial MySQL project structure planning,27-Feb-2026,,,,,,,
+,,,First sample/sensor data entry into DB,27-Feb-2026,,,,,,,
+2,Database Design & Migrations,03-Mar-2026,Create devices table,02-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,"Core schema completed for devices, history, and latest-state caching.",-
+,,,Create meter_readings table,03-Mar-2026,,,,,,,
+,,,Create latest_meter_states table,03-Mar-2026,,,,,,,
+,,,"Add foreign keys, indexes, and duplicate-protection rules",03-Mar-2026,,,,,,,
+3,MQTT Integration Setup,05-Mar-2026,Install MQTT client package,04-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Broker connectivity established from Laravel.,-
+,,,Configure broker connection and credentials,04-Mar-2026,,,,,,,
+,,,Test broker connectivity from Laravel,05-Mar-2026,,,,,,,
+4,MQTT Consumer Development,06-Mar-2026,Create mqtt:consume-meter command,06-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Consumer command created and verified with live payload reception.,-
+,,,Subscribe to active device topic(s),06-Mar-2026,,,,,,,
+,,,Receive MQTT payloads,06-Mar-2026,,,,,,,
+,,,Parse JSON payload into reading fields,06-Mar-2026,,,,,,,
+5,Data Storage Implementation,09-Mar-2026,Store incoming meter data in meter_readings,09-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,End-to-end MQTT to DB path completed.,-
+,,,Update latest_meter_states on every valid reading,09-Mar-2026,,,,,,,
+,,,Update devices.last_seen_at,09-Mar-2026,,,,,,,
+6,Debugging & Issue Fixing,11-Mar-2026,Fix device/topic matching issues,10-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Initial stabilization completed across ingestion and dashboard flow.,-
+,,,Fix route/data issues affecting dashboard reads,11-Mar-2026,,,,,,,
+,,,Resolve event/data display inconsistencies,11-Mar-2026,,,,,,,
+7,Initial Dashboard Integration,13-Mar-2026,Fetch data from API/DB for dashboard,12-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Single-device dashboard delivered with realtime behavior.,-
+,,,"Show live KPIs, charts, and readings table",13-Mar-2026,,,,,,,
+,,,Verify realtime updates via Reverb/Echo,13-Mar-2026,,,,,,,
+8,System Testing (Single Device),19-Mar-2026,Test MQTT -> DB -> Dashboard end-to-end flow,17-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,95%,Core single-device flow validated; structured edge-case logging moved to later improvement work.,-
+,,,Validate stored data against source feed,18-Mar-2026,,,,,,,
+,,,Verify dashboard behavior after restart / reload,19-Mar-2026,,,,,,,
+9,System Review & Next-Phase Planning,20-Mar-2026,Review completed pilot architecture,20-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Pilot review completed before Eid break; multi-device backlog defined.,-
+,,,Identify multi-device and validation gaps,20-Mar-2026,,,,,,,
+,,,Prepare next implementation direction,20-Mar-2026,,,,,,,
+10,Eid Holiday Break / Non-Working Window,23-Mar-2026,Eid-ul-Fitr holiday,21-Mar-2026,-,IoT Webapp Development,-,Holiday,-,Public holidays excluded from the working schedule.,-
+,,,Eid-ul-Fitr holiday,22-Mar-2026,,,,,,,
+,,,Pakistan Day / Eid public holiday overlap,23-Mar-2026,,,,,,,
+11,Multi-Device Support & Testing,26-Mar-2026,Review consumer behavior for all active devices,24-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Confirmed that ingestion must remain global while display stays per-device.,-
+,,,Verify per-device readings API direction,25-Mar-2026,,,,,,,
+,,,Plan multi-device DB/UI behavior,26-Mar-2026,,,,,,,
+12,Data Validation & Normalization,30-Mar-2026,Review invalid JSON handling strategy,27-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,90%,Validation strategy reviewed; structured logging remained a later enhancement.,-
+,,,Review duplicate payload handling,30-Mar-2026,,,,,,,
+,,,Normalize latest-state update logic,30-Mar-2026,,,,,,,
+13,Latest State & API Development,01-Apr-2026,Improve latest-state consistency,31-Mar-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Per-device readings endpoint and latest-state behavior stabilized.,-
+,,,Fix dashboard readings API routing behavior,01-Apr-2026,,,,,,,
+,,,Align API output with dashboard needs,01-Apr-2026,,,,,,,
+14,Dashboard Reliability & Error Handling,03-Apr-2026,Repair stale realtime dashboard wiring,02-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Dashboard polling and realtime flow made reliable for pilot usage.,-
+,,,Improve background refresh behavior,03-Apr-2026,,,,,,,
+,,,Strengthen failed-refresh and bad-state handling,03-Apr-2026,,,,,,,
+15,"Documentation, Setup & Handoff",08-Apr-2026,Clarify .env usage and MySQL-based setup,06-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Setup guidance and project continuity documents completed.,-
+,,,Write run instructions and verification flow,07-Apr-2026,,,,,,,
+,,,Create full project handoff documentation,08-Apr-2026,,,,,,,
+16,"PPT Analysis, Feasibility & Roadmap",10-Apr-2026,Analyze full PPT project scope vs current codebase,09-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,Project direction updated from pilot dashboard to platform roadmap.,-
+,,,Assess whether full platform is achievable,09-Apr-2026,,,,,,,
+,,,Build weekly roadmap and Week 1 verification plan,10-Apr-2026,,,,,,,
+17,Multi-Meter Planning & UX Definition,14-Apr-2026,Define frontend add/remove device behavior,13-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Completed,100%,"Final UX model approved: store all devices, show only selected device.",-
+,,,Define delete cascade expectations,13-Apr-2026,,,,,,,
+,,,Define selected-device-only dashboard behavior,14-Apr-2026,,,,,,,
+18,Multi-Meter Implementation,21-Apr-2026,Add selectable dashboard controller flow,15-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,In Progress,90%,Implemented multi-meter dashboard selection and device management; local DB-backed tests require pdo_sqlite to run fully.,"If full local automated DB tests are required, install the pdo_sqlite PHP extension."
+,,,Add device management route/controller/page,16-Apr-2026,,,,,,,
+,,,Add create/delete API flow with comments,17-Apr-2026,,,,,,,
+,,,Add dashboard selector and realtime filtering,20-Apr-2026,,,,,,,
+,,,Add tests and verification updates,21-Apr-2026,,,,,,,
+19,Final UAT / Closing Window,24-Apr-2026,Verify old and new meter visibility in UI,22-Apr-2026,Hammaad Ahmad Khalid,IoT Webapp Development,High,Pending,0%,"Final user validation window for meter visibility, add/delete flow, and selected-device-only behavior.","If older devices do not appear in UI, verify devices.type = meter and confirm is_active where applicable."
+,,,Verify add/delete flow plus consumer restart operational step,23-Apr-2026,,,,,,,
+,,,Verify selected-device-only dashboard with all-device background ingestion,24-Apr-2026,,,,,,,
