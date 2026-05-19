@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Device;
 use App\Models\LatestMeterState;
 use App\Models\MeterReading;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use Tests\TestCase;
@@ -13,6 +14,16 @@ use Tests\TestCase;
 class DeviceManagementApiTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected User $user;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user, 'sanctum');
+    }
 
     public function test_device_can_be_created_from_the_management_api(): void
     {
@@ -46,6 +57,7 @@ class DeviceManagementApiTest extends TestCase
             'type' => 'meter',
             'mqtt_topic' => 'meters/delete-me',
             'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
 
         $reading = MeterReading::create([

@@ -1,0 +1,29 @@
+[90m= [39m[34;4mIlluminate\Database\Eloquent\Collection[39;24m {#6626
+    [34mall[39m: [
+      [34;4mApp\Models\Device[39;24m {#6620
+        [34mid[39m: [35m15[39m,
+        [34mname[39m: "[32mSmart Energy Meter[39m",
+        [34mcode[39m: "[32ma85575TEST[39m",
+        [34muser_id[39m: [35m2[39m,
+      },
+      [34;4mApp\Models\Device[39;24m {#6619
+        [34mid[39m: [35m16[39m,
+        [34mname[39m: "[32mcivil[39m",
+        [34mcode[39m: "[32mmeter02[39m",
+        [34muser_id[39m: [35m2[39m,
+      },
+      [34;4mApp\Models\Device[39;24m {#6618
+        [34mid[39m: [35m18[39m,
+        [34mname[39m: "[32mCEO Office[39m",
+        [34mcode[39m: "[32mMeter03[39m",
+        [34muser_id[39m: [35m3[39m,
+      },
+      [34;4mApp\Models\Device[39;24m {#6617
+        [34mid[39m: [35m22[39m,
+        [34mname[39m: "[32mShop 32[39m",
+        [34mcode[39m: "[32mMeter04[39m",
+        [34muser_id[39m: [35m3[39m,
+      },
+    ],
+  }
+

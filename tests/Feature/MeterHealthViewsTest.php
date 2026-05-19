@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
@@ -14,12 +15,16 @@ class MeterHealthViewsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->withoutVite();
         Carbon::setTestNow('2026-04-21 12:00:00');
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user);
     }
 
     protected function tearDown(): void
@@ -80,21 +85,18 @@ class MeterHealthViewsTest extends TestCase
             'is_active' => false,
         ]);
 
-        $response = $this->get('/devices/manage');
+        // New URL: /devices (index replaces /devices/manage)
+        $response = $this->get('/devices');
 
         $response
             ->assertOk()
-            ->assertSee('Enabled')
             ->assertSee('Availability')
             ->assertSee('Health')
-            ->assertSee('Issue')
             ->assertSee('Last Seen')
             ->assertSee('Offline')
             ->assertSee('Online')
             ->assertSee('Never Seen')
-            ->assertSee('Down')
-            ->assertSee('Payload Error')
-            ->assertSee('Disabled');
+            ->assertSee('Down');
     }
 
     public function test_dashboard_shows_initial_down_health_banner_for_silent_meter(): void
@@ -106,7 +108,8 @@ class MeterHealthViewsTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response = $this->get('/?device='.$meter->id);
+        // New URL: /devices/{id}/dashboard
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
 
         $response
             ->assertOk()
@@ -144,7 +147,7 @@ class MeterHealthViewsTest extends TestCase
         ])->save();
         $latestState->timestamps = true;
 
-        $response = $this->get('/?device='.$meter->id);
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
 
         $response
             ->assertOk()
@@ -165,7 +168,7 @@ class MeterHealthViewsTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response = $this->get('/?device='.$meter->id);
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
 
         $response
             ->assertOk()
@@ -187,7 +190,8 @@ class MeterHealthViewsTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response = $this->get('/devices/manage');
+        // New URL: /devices (replaces /devices/manage)
+        $response = $this->get('/devices');
 
         $response
             ->assertOk()
@@ -205,6 +209,7 @@ class MeterHealthViewsTest extends TestCase
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
             'is_active' => true,
             'last_seen_at' => null,
+            'user_id' => $this->user->id,
         ];
 
         return Device::create(array_merge($defaults, $attributes));

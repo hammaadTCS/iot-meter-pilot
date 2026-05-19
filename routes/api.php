@@ -33,38 +33,23 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\DeviceReadingController;
-
-// -----------------------------------------------------------------------------
-// Meter Dashboard — Readings API
-// -----------------------------------------------------------------------------
-//
-// Used by the JavaScript in meter-dashboard.blade.php
-//
-// Full URL after registration: GET /api/devices/{device}/readings
-//
-// Examples:
-//   /api/devices/1/readings?range=1h           → all readings from last 1 hour
-//   /api/devices/1/readings?range=6h           → last 6 hours
-//   /api/devices/1/readings?range=24h          → rolling 24 hours
-//   /api/devices/1/readings?range=today        → since midnight today
-//   /api/devices/1/readings?range=7d           → last 7 days
-//   /api/devices/1/readings?range=1h&after=42  → only rows with id > 42
-//
-// {device} uses Laravel Route Model Binding — it automatically fetches
-// the Device model from the database using the ID in the URL.
-// -----------------------------------------------------------------------------
 use App\Http\Controllers\Api\DeviceController;
 
-Route::get('/devices', [DeviceController::class, 'index']);
-Route::post('/devices', [DeviceController::class, 'store']);
-Route::get('/devices/{device}', [DeviceController::class, 'show']);
-Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
-Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
-Route::get('/devices/{device}/readings', [DeviceReadingController::class, 'index']);
-Route::get('/devices/{id}/snapshot', [DeviceController::class, 'readings']);
-// use Illuminate\Http\Request;
-// use Illuminate\Support\Facades\Route;
+// Public health check
+Route::get('/health', function () {
+    return response()->json(['status' => 'ok']);
+});
 
-// Route::get('/user', function (Request $request) {
-//     return $request->user();
-// })->middleware('auth:sanctum');
+// Protected routes requiring authentication
+Route::middleware('auth:sanctum')->group(function () {
+    // Device Management
+    Route::get('/devices', [DeviceController::class, 'index']);
+    Route::post('/devices', [DeviceController::class, 'store']);
+    Route::get('/devices/{device}', [DeviceController::class, 'show']);
+    Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
+    Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
+
+    // Device Readings
+    Route::get('/devices/{device}/readings', [DeviceReadingController::class, 'index']);
+    Route::get('/devices/{id}/snapshot', [DeviceController::class, 'readings']);
+});

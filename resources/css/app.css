@@ -1,11 +1,36 @@
-@import 'tailwindcss';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-@source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
-@source '../../storage/framework/views/*.php';
-@source '../**/*.blade.php';
-@source '../**/*.js';
+@layer base {
+    body {
+        background-color: #0b0f1a;
+        color: #e2e8f0;
+    }
 
-@theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
-        'Segoe UI Symbol', 'Noto Color Emoji';
+    /* Subtle dot-grid body texture */
+    body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        z-index: 0;
+        background-image: radial-gradient(circle, rgba(255,255,255,0.03) 1px, transparent 1px);
+        background-size: 28px 28px;
+    }
+
+    /* Ensure content sits above texture */
+    body > * {
+        position: relative;
+        z-index: 1;
+    }
+}
+
+@layer utilities {
+    .font-mono {
+        font-family: 'Space Mono', monospace;
+    }
+    .font-body {
+        font-family: 'DM Sans', sans-serif;
+    }
 }

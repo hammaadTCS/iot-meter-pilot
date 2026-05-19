@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
@@ -14,11 +15,15 @@ class DeviceStatusApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         Carbon::setTestNow('2026-04-21 12:00:00');
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user, 'sanctum');
     }
 
     protected function tearDown(): void
@@ -47,6 +52,7 @@ class DeviceStatusApiTest extends TestCase
             'last_availability_message' => 'MQTT availability reports this meter online.',
             'last_availability_at' => now()->subSeconds(5),
             'last_heartbeat_at' => now()->subSeconds(5),
+            'user_id' => $this->user->id,
         ]);
 
         LatestMeterState::create([
@@ -95,6 +101,7 @@ class DeviceStatusApiTest extends TestCase
             'last_availability_message' => 'MQTT availability reports this meter online.',
             'last_availability_at' => now()->subMinutes(2),
             'last_heartbeat_at' => now()->subMinutes(2),
+            'user_id' => $this->user->id,
         ]);
 
         $response = $this->getJson("/api/devices/{$device->id}/status");

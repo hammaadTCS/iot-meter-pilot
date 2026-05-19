@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -14,11 +15,15 @@ class DeviceReadingsApiTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected User $user;
+
     protected function setUp(): void
     {
         parent::setUp();
 
         Carbon::setTestNow('2026-04-21 12:00:00');
+        $this->user = User::factory()->create();
+        $this->actingAs($this->user, 'sanctum');
     }
 
     protected function tearDown(): void
@@ -102,6 +107,7 @@ class DeviceReadingsApiTest extends TestCase
             'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
             'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
     }
 

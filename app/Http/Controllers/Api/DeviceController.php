@@ -6,25 +6,34 @@ use App\Http\Controllers\Controller;
 use App\Models\Device;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class DeviceController extends Controller
 {
+    use AuthorizesRequests;
     /**
-     * Return all configured devices so the frontend can build selectors and
-     * management lists.
+     * Return all configured devices for the current user (or all if admin).
      */
-    public function index()
+    public function index(Request $request)
     {
+        $user = $request->user();
+
+        // Admin sees all devices, regular users see only their own
+        $query = $user->isAdmin() ? Device::query() : Device::forUser($user);
+
         return response()->json(
-            Device::orderBy('id', 'desc')->get()
+            $query->orderBy('id', 'desc')->get()
         );
     }
 
     /**
-     * Create a new device record from the management screen.
+     * Create a new device record and assign it to the current user.
      */
     public function store(Request $request)
     {
+        $this->authorize('create', Device::class);
+
+        $user = $request->user();
         $mqttTopic = trim((string) $request->input('mqtt_topic'));
         $availabilityTopic = trim((string) $request->input('availability_topic', ''));
 
@@ -37,7 +46,13 @@ class DeviceController extends Controller
         ]);
 
         $validated = $request->validate([
-            'code' => 'required|string|max:255|unique:devices,code',
+            'code' => [
+                'required',
+                'string',
+                'max:255',
+                // Code must be unique per user, not globally
+                'unique:devices,code,null,id,user_id,' . $user->id,
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|string|max:255',
             'mqtt_topic' => 'required|string|max:255|unique:devices,mqtt_topic',
@@ -45,7 +60,7 @@ class DeviceController extends Controller
             'is_active' => 'nullable|boolean',
         ]);
 
-        $device = Device::create([
+        $device = $user->devices()->create([
             'code' => $validated['code'],
             'name' => $validated['name'],
             'type' => $validated['type'],
@@ -60,10 +75,12 @@ class DeviceController extends Controller
     }
 
     /**
-     * Return one device by route-model-bound id.
+     * Return one device by route-model-bound id (with authorization).
      */
-    public function show(Device $device)
+    public function show(Request $request, Device $device)
     {
+        $this->authorize('view', $device);
+
         $device->load('latestState');
 
         return response()->json([
@@ -76,10 +93,12 @@ class DeviceController extends Controller
     }
 
     /**
-     * Delete a device and let the database cascade remove its related history.
+     * Delete a device (with authorization).
      */
-    public function destroy(Device $device)
+    public function destroy(Request $request, Device $device)
     {
+        $this->authorize('delete', $device);
+
         DB::transaction(function () use ($device) {
             $device->delete();
         });
@@ -92,14 +111,17 @@ class DeviceController extends Controller
     /**
      * Return one device plus a small recent snapshot for quick inspection.
      */
-    public function readings($id)
+    public function readings(Request $request, $id)
     {
-        $device = Device::with([
+        $device = Device::findOrFail($id);
+        $this->authorize('view', $device);
+
+        $device->load([
             'readings' => function ($query) {
                 $query->latest()->limit(100);
             },
             'latestState',
-        ])->findOrFail($id);
+        ]);
 
         return response()->json($device);
     }
@@ -107,8 +129,10 @@ class DeviceController extends Controller
     /**
      * Return just the runtime status snapshots needed by the live dashboard.
      */
-    public function status(Device $device)
+    public function status(Request $request, Device $device)
     {
+        $this->authorize('view', $device);
+
         $device->load('latestState');
 
         return response()->json([

@@ -6,6 +6,7 @@ use App\Models\Device;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 class DeviceReadingController extends Controller
@@ -22,13 +23,15 @@ class DeviceReadingController extends Controller
 
     /**
      * Cap large full-load responses so charts remain responsive.
+     * 30d and all ranges may have thousands of rows — sampling keeps the
+     * chart smooth while still showing the full trend shape.
      */
     private const MAX_ROWS = 500;
 
     /**
      * Allowed frontend range keys.
      */
-    private const VALID_RANGES = ['1h', '6h', '24h', 'today', '7d'];
+    private const VALID_RANGES = ['1h', '6h', '24h', 'today', '7d', '30d', 'all'];
 
     /**
      * Convert a range key into the start of the requested window.
@@ -36,11 +39,14 @@ class DeviceReadingController extends Controller
     private function windowStart(string $range): Carbon
     {
         return match ($range) {
-            '1h' => now()->subHour(),
-            '6h' => now()->subHours(6),
+            '1h'  => now()->subHour(),
+            '6h'  => now()->subHours(6),
             '24h' => now()->subDay(),
             'today' => Carbon::today(),
-            '7d' => now()->subDays(7),
+            '7d'  => now()->subDays(7),
+            '30d' => now()->subDays(30),
+            // 'all' uses Unix epoch so the window filter passes every row
+            'all' => Carbon::createFromTimestamp(0),
             default => now()->subHour(),
         };
     }
@@ -123,6 +129,12 @@ class DeviceReadingController extends Controller
      */
     public function index(Request $request, Device $device): JsonResponse
     {
+        $user = Auth::user();
+
+        if (! $user->isAdminOrAbove() && $device->user_id !== $user->id) {
+            abort(403);
+        }
+
         $rangeKey = $request->query('range', '1h');
 
         if (!in_array($rangeKey, self::VALID_RANGES, true)) {

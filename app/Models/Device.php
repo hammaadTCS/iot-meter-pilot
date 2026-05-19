@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 class Device extends Model
@@ -13,6 +14,7 @@ class Device extends Model
      * Fields we allow mass assignment on.
      */
     protected $fillable = [
+        'user_id',
         'code',
         'name',
         'type',
@@ -44,6 +46,22 @@ class Device extends Model
         'last_availability_at' => 'datetime',
         'last_heartbeat_at' => 'datetime',
     ];
+
+    /**
+     * Device belongs to a user.
+     */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /**
+     * Scope: Only devices for a specific user.
+     */
+    public function scopeForUser($query, User $user)
+    {
+        return $query->where('user_id', $user->id);
+    }
 
     /**
      * A device has many historical readings.

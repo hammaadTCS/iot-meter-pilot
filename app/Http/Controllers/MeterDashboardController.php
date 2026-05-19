@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Device;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class MeterDashboardController extends Controller
 {
@@ -13,12 +14,19 @@ class MeterDashboardController extends Controller
      */
     public function show(Request $request)
     {
+        $user = Auth::user();
+
         // Only meter devices should appear in the dashboard selector.
-        $devices = Device::query()
+        $query = Device::query()
             ->where('type', 'meter')
             ->where('is_active', true)
-            ->orderBy('name')
-            ->get();
+            ->orderBy('name');
+
+        if (! $user->isAdminOrAbove()) {
+            $query->where('user_id', $user->id);
+        }
+
+        $devices = $query->get();
 
         if ($devices->isEmpty()) {
             return view('meter-dashboard-empty');
