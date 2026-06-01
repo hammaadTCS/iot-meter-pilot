@@ -405,8 +405,103 @@
             box-shadow: 0 0 12px rgba(0,229,255,.18);
         }
 
-        /* Vertical divider between short ranges and 7-day */
+        /* Vertical divider between range groups */
         .range-divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+        /* ── Custom Range Card ── */
+        .custom-range-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 20px;
+            margin-bottom: 20px;
+            transition: border-color .2s;
+        }
+        .custom-range-card.is-active {
+            border-color: var(--accent2);
+            box-shadow: 0 0 0 1px rgba(124,58,237,.2);
+        }
+        .custom-range-inner {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .custom-range-label {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: .12em;
+            color: var(--muted);
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+        .custom-range-fields {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            flex: 1;
+        }
+        .custom-range-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .custom-range-field-label {
+            font-family: var(--font-mono);
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: .1em;
+            color: var(--muted);
+        }
+        .custom-range-input {
+            padding: 7px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--bg);
+            color: var(--text);
+            font: 12px/1 var(--font-mono);
+            cursor: pointer;
+            color-scheme: dark;
+            transition: border-color .15s, box-shadow .15s;
+        }
+        .custom-range-input:focus {
+            outline: none;
+            border-color: var(--accent2);
+            box-shadow: 0 0 0 3px rgba(124,58,237,.15);
+        }
+        .custom-range-apply {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: 1px solid var(--accent2);
+            background: rgba(124,58,237,.12);
+            color: #a78bfa;
+            cursor: pointer;
+            transition: all .15s;
+            letter-spacing: .06em;
+            white-space: nowrap;
+            align-self: flex-end;
+        }
+        .custom-range-apply:hover {
+            background: rgba(124,58,237,.22);
+            box-shadow: 0 0 12px rgba(124,58,237,.25);
+        }
+        .custom-range-clear {
+            font-family: var(--font-mono);
+            font-size: 10px;
+            padding: 8px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            transition: all .15s;
+            align-self: flex-end;
+        }
+        .custom-range-clear:hover { border-color: var(--red); color: var(--red); }
 
         /* Small status badge: "12 new rows" after a silent refresh */
         .new-badge {
@@ -768,7 +863,6 @@
         <div class="range-bar">
             <span class="range-label">Range</span>
 
-            {{-- Each button sets data-range which is sent to the API --}}
             <button class="range-btn active" data-range="1h">1H</button>
             <button class="range-btn"        data-range="6h">6H</button>
             <button class="range-btn"        data-range="24h">24H</button>
@@ -778,14 +872,38 @@
 
             <button class="range-btn" data-range="7d">7 Days</button>
             <button class="range-btn" data-range="30d">30 Days</button>
-
-            <div class="range-divider"></div>
-
             <button class="range-btn" data-range="all">Full Data</button>
         </div>
 
-        {{-- Shown briefly after a silent background refresh finds new rows --}}
         <span class="new-badge" id="newBadge">— new readings</span>
+    </div>
+
+    {{-- ── Custom date/time range picker ──────────────────────────────────── --}}
+    <div class="custom-range-card" id="customRangeCard">
+        <div class="custom-range-inner">
+            <span class="custom-range-label">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:5px"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Custom Range
+            </span>
+            <div class="custom-range-fields">
+                <div class="custom-range-field">
+                    <label class="custom-range-field-label" for="customFrom">From</label>
+                    <input type="datetime-local" id="customFrom" class="custom-range-input">
+                </div>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" stroke-linecap="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+                <div class="custom-range-field">
+                    <label class="custom-range-field-label" for="customTo">To</label>
+                    <input type="datetime-local" id="customTo" class="custom-range-input">
+                </div>
+                <button class="custom-range-apply" id="applyCustomRangeBtn">Apply</button>
+                <button class="custom-range-clear" id="clearCustomRangeBtn" style="display:none;">✕ Clear</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Silent progress bar while background chunks are fetching --}}
+    <div id="loadingMoreBar" style="display:none;text-align:center;padding:6px 0;font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.06em;">
+        ↻ &nbsp;Loading more readings…
     </div>
 
     {{-- ══════════════════════════════════════════════════════════
@@ -946,6 +1064,13 @@ let lastKnownRecordedAt = null;
  * Charts use it in reversed (oldest-first) order.
  */
 let allReadings = [];
+
+/** True while loadRemainingChunks() is running — prevents overlapping loops. */
+let isLoadingMore = false;
+
+/** ISO datetime strings when a custom range is active. Null = preset range. */
+let customRangeFrom = null;
+let customRangeTo   = null;
 
 /** Reference to the setInterval timer so we can clear/restart it. */
 let autoRefreshTimer = null;
@@ -1954,9 +2079,12 @@ function ingestAvailabilityUpdate(eventPayload) {
 function updateTable(range, newRowCount = 0) {
     const tbody = document.getElementById('readings-body');
 
-    // Update the row count and range label in the section header
     document.getElementById('rowCount').textContent = allReadings.length.toLocaleString();
-    document.getElementById('rangeLabel').textContent = activeRange.toUpperCase();
+
+    const rangeDisplay = (activeRange === 'custom' && customRangeFrom && customRangeTo)
+        ? `${new Date(customRangeFrom).toLocaleString('en-GB')} → ${new Date(customRangeTo).toLocaleString('en-GB')}`
+        : activeRange.toUpperCase();
+    document.getElementById('rangeLabel').textContent = rangeDisplay;
 
     if (!allReadings.length) {
         tbody.innerHTML = `<tr><td colspan="8">
@@ -2030,46 +2158,131 @@ async function fetchReadings(range, afterId = 0, afterRecordedAt = null) {
 }
 
 
+/**
+ * Fetch one chunk (up to 500 rows) using the paginated readings API.
+ * Reads activeRange / customRangeFrom / customRangeTo from shared state.
+ */
+async function fetchPage(beforeRecordedAt = null, beforeId = 0) {
+    let url = `${API_BASE}?limit=500`;
+
+    if (customRangeFrom && customRangeTo) {
+        url += `&from=${encodeURIComponent(customRangeFrom)}&to=${encodeURIComponent(customRangeTo)}`;
+    } else {
+        url += `&range=${activeRange}`;
+    }
+
+    if (beforeRecordedAt) {
+        url += `&before_received_at=${encodeURIComponent(beforeRecordedAt)}`;
+        url += `&before_id=${beforeId}`;
+    }
+
+    const response = await fetch(url, {
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    });
+
+    if (!response.ok) throw new Error(`API error: ${response.status}`);
+
+    const json = await response.json();
+
+    return {
+        rows: Array.isArray(json.data) ? json.data : [],
+        meta: json.meta ?? { has_more: false, next_before_received_at: null, next_before_id: null },
+    };
+}
+
+function showLoadingMore() {
+    const el = document.getElementById('loadingMoreBar');
+    if (el) el.style.display = 'block';
+}
+
+function hideLoadingMore() {
+    const el = document.getElementById('loadingMoreBar');
+    if (el) el.style.display = 'none';
+}
+
+
 /* ═══════════════════════════════════════════════════════════════════════
- * 9. FULL LOAD
- * Called when the page first loads or when the user switches range.
- * Shows the spinner overlay, replaces all data, resets the cursor.
+ * 9. FULL LOAD + PROGRESSIVE CHUNK LOADER
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * Performs a complete data reload for the given range.
- * Displays a blocking spinner while loading.
- * Resets the incremental cursor so subsequent background fetches start fresh.
- *
- * @param {string} range  — range key to load
+ * Silently fetches all remaining chunks after the first paint.
+ * Aborts immediately if the user switches range mid-load.
+ */
+async function loadRemainingChunks(snapshotRange, snapshotFrom, snapshotTo, beforeRecordedAt, beforeId) {
+    if (isLoadingMore) return;
+    isLoadingMore = true;
+    showLoadingMore();
+
+    try {
+        let cursor = { before_received_at: beforeRecordedAt, before_id: beforeId };
+
+        while (true) {
+            if (activeRange !== snapshotRange) break;
+            if (customRangeFrom !== snapshotFrom || customRangeTo !== snapshotTo) break;
+
+            const { rows, meta } = await fetchPage(cursor.before_received_at, cursor.before_id);
+
+            if (!rows.length) break;
+
+            mergeIncomingReadings(rows);
+            updateCharts([...allReadings].reverse(), activeRange);
+            updateTable(activeRange, 0);
+
+            if (!meta.has_more) break;
+
+            cursor = {
+                before_received_at: meta.next_before_received_at,
+                before_id: meta.next_before_id ?? 0,
+            };
+        }
+    } catch (err) {
+        console.warn('[MeterDash] loadRemainingChunks failed:', err);
+    } finally {
+        isLoadingMore = false;
+        hideLoadingMore();
+    }
+}
+
+/**
+ * Fetch the first 500 rows immediately for a fast first paint,
+ * then silently load remaining chunks in the background.
  */
 async function fullLoad(range) {
-    // Show spinners over both charts and table
     document.getElementById('chartsLoader').classList.add('show');
     document.getElementById('tableLoader').classList.add('show');
 
     try {
-        const [readings, statusPayload] = await Promise.all([
-            fetchReadings(range, 0),
+        const [{ rows, meta }, statusPayload] = await Promise.all([
+            fetchPage(),
             fetchDeviceStatus(),
         ]);
 
-        /*
-         * API returns oldest → newest. We want:
-         *   - allReadings stored  newest-first  (table reads top=newest)
-         *   - charts plotted      oldest-first  (time flows left → right)
-         */
-        allReadings = [...readings].sort(compareReadingsNewestFirst);
-        syncReadingsCursor(readings);
+        // Server returns DESC (newest-first) for paginated responses.
+        allReadings = rows;
 
-        // Update the UI
-        updateCharts(readings, range);      // pass oldest-first (as received)
-        updateTable(range, 0);             // no flash on full load
+        if (rows.length > 0) {
+            lastKnownId         = Number(rows[0].id ?? 0);
+            lastKnownRecordedAt = rows[0].created_at ?? null;
+        } else {
+            lastKnownId         = 0;
+            lastKnownRecordedAt = null;
+        }
+
+        updateCharts([...allReadings].reverse(), range);
+        updateTable(range, 0);
         clearConnectionIssue();
         applyRuntimeStatus(statusPayload);
 
         if (!currentSnapshot) {
-            updateCurrentSnapshot(makeSnapshotFromReading(readings[readings.length - 1] ?? null));
+            updateCurrentSnapshot(makeSnapshotFromReading(rows[0] ?? null));
+        }
+
+        if (meta.has_more) {
+            loadRemainingChunks(
+                range, customRangeFrom, customRangeTo,
+                meta.next_before_received_at, meta.next_before_id ?? 0
+            );
         }
 
     } catch (err) {
@@ -2231,20 +2444,79 @@ function showNewBadge(count) {
  *   4. Runs a fullLoad for the new range
  *   5. Restarts the auto-refresh timer from the beginning
  */
-document.querySelectorAll('.range-btn').forEach(btn => {
+document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
     btn.addEventListener('click', async () => {
-        // Deactivate all buttons, activate this one
         document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
 
-        activeRange = btn.dataset.range;
-        lastKnownId = 0;
+        customRangeFrom = null;
+        customRangeTo   = null;
+        document.getElementById('customRangeCard').classList.remove('is-active');
+        document.getElementById('clearCustomRangeBtn').style.display = 'none';
+
+        activeRange         = btn.dataset.range;
+        isLoadingMore       = false;
+        lastKnownId         = 0;
         lastKnownRecordedAt = null;
-        allReadings = [];
+        allReadings         = [];
+        hideLoadingMore();
 
         await fullLoad(activeRange);
-        startAutoRefresh();        // restart countdown from 30s
+        startAutoRefresh();
     });
+});
+
+document.getElementById('applyCustomRangeBtn').addEventListener('click', async () => {
+    const fromVal = document.getElementById('customFrom').value;
+    const toVal   = document.getElementById('customTo').value;
+
+    if (!fromVal || !toVal) {
+        alert('Please select both a start and end date/time.');
+        return;
+    }
+
+    if (new Date(fromVal) >= new Date(toVal)) {
+        alert('Start date/time must be before end date/time.');
+        return;
+    }
+
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('customRangeCard').classList.add('is-active');
+    document.getElementById('clearCustomRangeBtn').style.display = '';
+
+    customRangeFrom     = new Date(fromVal).toISOString();
+    customRangeTo       = new Date(toVal).toISOString();
+    activeRange         = 'custom';
+    isLoadingMore       = false;
+    allReadings         = [];
+    lastKnownId         = 0;
+    lastKnownRecordedAt = null;
+    hideLoadingMore();
+
+    await fullLoad('custom');
+    stopAutoRefresh();
+});
+
+document.getElementById('clearCustomRangeBtn').addEventListener('click', async () => {
+    document.getElementById('customFrom').value = '';
+    document.getElementById('customTo').value   = '';
+    document.getElementById('customRangeCard').classList.remove('is-active');
+    document.getElementById('clearCustomRangeBtn').style.display = 'none';
+
+    document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.range-btn[data-range="1h"]').classList.add('active');
+
+    customRangeFrom     = null;
+    customRangeTo       = null;
+    activeRange         = '1h';
+    isLoadingMore       = false;
+    allReadings         = [];
+    lastKnownId         = 0;
+    lastKnownRecordedAt = null;
+    hideLoadingMore();
+
+    await fullLoad('1h');
+    startAutoRefresh();
 });
 
 /**

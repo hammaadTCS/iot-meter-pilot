@@ -11,3 +11,7 @@ Artisan::command('inspire', function () {
 Schedule::command('meters:scan-health')
     ->everyMinute()
     ->withoutOverlapping();
+
+Schedule::command('meters:prune-ingestion-events --days=30')
+    ->daily()
+    ->withoutOverlapping();

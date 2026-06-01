@@ -15,163 +15,136 @@ use Throwable;
 
 class ConsumeMeterTopic extends Command
 {
-    protected $signature = 'mqtt:consume-meter';
+    protected $signature = 'mqtt:consume-meter
+                            {--restart-after=50000 : Exit cleanly after this many processed messages so the supervisor recycles memory}';
 
     protected $description = 'Consume meter MQTT topics and store readings';
 
-    /**
-     * Keep the lock file handle open for the lifetime of the command. PHP
-     * releases the flock automatically if the process crashes or exits.
-     */
     private mixed $consumerLockHandle = null;
+
+    /** @var bool Set to true by SIGTERM/SIGINT so the loop exits after the current message. */
+    private bool $shouldStop = false;
+
+    /** Readings older than this many seconds at time of receipt are considered catch-up and skip the live broadcast. */
+    private const CATCHUP_THRESHOLD_SECONDS = 120;
 
     public function handle(
         MeterPayloadProcessor $processor,
         MeterAvailabilityProcessor $availabilityProcessor,
         MeterIngestionRecorder $ingestionRecorder,
     ) {
-        $this->info('Starting MQTT meter consumer...');
+        $this->line('Starting MQTT meter consumer (PID '.getmypid().')');
 
         if (! $this->acquireConsumerLock()) {
             $this->warn('Another MQTT meter consumer is already running. Exiting.');
-
-            Log::warning('MQTT consumer refused to start because another instance holds the lock');
+            Log::warning('MQTT consumer refused to start: another instance holds the lock');
 
             return self::FAILURE;
         }
 
+        $this->installSignalHandlers();
+
+        $maxMessages = max(1, (int) $this->option('restart-after'));
+        $processedMessages = 0;
+
         $connectionConfig = (array) config('mqtt-client.connections.default', []);
         $subscribeQos = (int) ($connectionConfig['subscribe_qos'] ?? 1);
         $retryConfig = (array) ($connectionConfig['retry'] ?? []);
-        $retryBaseDelaySeconds = max(1, (int) ($retryConfig['base_delay_seconds'] ?? env('MQTT_RETRY_DELAY', 5)));
-        $retryMaxDelaySeconds = max($retryBaseDelaySeconds, (int) ($retryConfig['max_delay_seconds'] ?? env('MQTT_RETRY_MAX_DELAY', 60)));
+        $retryBaseDelaySeconds = max(1, (int) ($retryConfig['base_delay_seconds'] ?? 5));
+        $retryMaxDelaySeconds = max($retryBaseDelaySeconds, (int) ($retryConfig['max_delay_seconds'] ?? 60));
         $reconnectAttempt = 0;
 
         try {
-            while (true) {
+            while (! $this->shouldStop) {
                 try {
                     $mqtt = MQTT::connection();
 
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Load all active devices
-                    |--------------------------------------------------------------------------
-                    */
-
-                    $devices = Device::where('is_active', true)->get();
+                    $devices = Device::where('is_active', '=', true)->get();
 
                     if ($devices->isEmpty()) {
-                        $this->warn('No active devices found.');
+                        $this->warn('No active devices found. Exiting.');
 
                         return self::SUCCESS;
                     }
 
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Subscribe to all device topics
-                    |--------------------------------------------------------------------------
-                    */
-
                     foreach ($devices as $device) {
-
                         $topic = trim($device->mqtt_topic);
 
-                        $this->info("Subscribing to topic: {$topic}");
+                        $this->line("Subscribing to: {$topic}");
+                        Log::info('MQTT consumer subscribing', ['topic' => $topic, 'device_id' => $device->id, 'qos' => $subscribeQos]);
 
-                        Log::info('MQTT consumer subscribing to data topic', [
-                            'topic' => $topic,
-                            'device_id' => $device->id,
-                            'qos' => $subscribeQos,
-                        ]);
+                        $mqtt->subscribe(
+                            $topic,
+                            function (string $topic, string $message) use ($processor, &$processedMessages, $maxMessages) {
+                                $processedMessages++;
 
-                        $mqtt->subscribe($topic, function (string $topic, string $message) use ($processor) {
-                            try {
-                                $topic = trim($topic);
+                                try {
+                                    $topic = trim($topic);
+                                    $result = $processor->process($topic, $message);
 
-                                echo "\n=============================\n";
-                                echo 'Topic: '.$topic."\n";
-                                echo 'Payload: '.$message."\n";
+                                    if ($result->status === 'ignored_unknown_topic') {
+                                        Log::warning('MQTT message ignored: topic not registered', ['topic' => $topic]);
 
-                                $result = $processor->process($topic, $message);
+                                        return;
+                                    }
 
-                                if ($result->status === 'ignored_unknown_topic') {
-                                    echo "Device NOT FOUND for topic\n";
+                                    $device = $result->device;
+                                    $reading = $result->reading;
 
-                                    Log::warning('MQTT message ignored because topic is not registered', [
-                                        'topic' => $topic,
-                                        'payload_size_bytes' => strlen($message),
+                                    if ($result->status === 'payload_issue') {
+                                        Log::warning('MQTT payload issue', [
+                                            'topic' => $topic,
+                                            'device_id' => $device?->id,
+                                            'error_code' => $result->errorCode,
+                                        ]);
+
+                                        return;
+                                    }
+
+                                    if (! $result->wasStored() || ! $device || ! $reading) {
+                                        return;
+                                    }
+
+                                    Log::debug('MQTT reading stored', [
+                                        'device_id' => $device->id,
+                                        'ts' => $reading->ts,
+                                        'latest_state_updated' => $result->latestStateUpdated,
                                     ]);
+                                } catch (Throwable $e) {
+                                    Log::error('MQTT message processing failed', ['topic' => $topic, 'error' => $e->getMessage()]);
 
                                     return;
                                 }
 
-                                $device = $result->device;
-                                $reading = $result->reading;
+                                // Skip live broadcast for catch-up readings delivered by the broker after
+                                // a reconnect. They are stored correctly in the DB; the dashboard catches
+                                // up by polling. Broadcasting all of them would flood Reverb.
+                                $isLiveReading = isset($reading) && $reading->ts >= now()->subSeconds(self::CATCHUP_THRESHOLD_SECONDS)->timestamp;
 
-                                if ($device) {
-                                    echo 'Device matched: ID='.$device->id."\n";
-                                }
-
-                                if ($result->status === 'payload_issue') {
-                                    echo ($result->errorMessage ?? 'Payload issue detected.')."\n";
-
-                                    Log::warning('MQTT payload issue recorded for device', [
-                                        'topic' => $topic,
-                                        'device_id' => $device?->id,
-                                        'error_code' => $result->errorCode,
-                                        'error_message' => $result->errorMessage,
-                                    ]);
-
+                                if (! $isLiveReading) {
                                     return;
                                 }
 
-                                if (! $result->wasStored() || ! $device || ! $reading) {
-                                    return;
-                                }
-
-                                echo "Reading stored successfully\n";
-
-                                if (! $result->latestStateUpdated) {
-                                    Log::notice('MQTT reading stored without changing latest meter state', [
-                                        'topic' => $topic,
+                                try {
+                                    event(new MeterReadingUpdated($device->fresh(), $reading, $result->latestStateUpdated));
+                                } catch (Throwable $e) {
+                                    Log::warning('MQTT reading stored but broadcast failed', [
                                         'device_id' => $device->id,
                                         'reading_id' => $reading->id,
-                                        'ts' => $reading->ts,
+                                        'error' => $e->getMessage(),
                                     ]);
                                 }
-                            } catch (Throwable $e) {
 
-                                echo 'ERROR: '.$e->getMessage()."\n";
-
-                                Log::error('MQTT message processing failed', [
-                                    'topic' => $topic,
-                                    'error' => $e->getMessage(),
-                                ]);
-
-                                return;
-                            }
-
-                            /*
-                            |--------------------------------------------------------------------------
-                            | Broadcast realtime event
-                            |--------------------------------------------------------------------------
-                            */
-
-                            try {
-                                event(new MeterReadingUpdated($device->fresh(), $reading, $result->latestStateUpdated));
-                            } catch (Throwable $e) {
-                                echo 'BROADCAST WARNING: '.$e->getMessage()."\n";
-
-                                Log::warning('MQTT reading stored but broadcast failed', [
-                                    'topic' => $topic,
-                                    'device_id' => $device->id,
-                                    'reading_id' => $reading->id,
-                                    'ts' => $reading->ts,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-
-                        }, $subscribeQos);
+                                // After reaching the message ceiling, signal the loop to exit so the
+                                // supervisor restarts the process with a clean PHP heap.
+                                if ($processedMessages >= $maxMessages) {
+                                    $this->shouldStop = true;
+                                    $this->line("Reached {$maxMessages} messages. Exiting for clean restart.");
+                                    Log::info('MQTT consumer exiting for scheduled restart', ['messages_processed' => $processedMessages]);
+                                }
+                            },
+                            $subscribeQos,
+                        );
 
                         $availabilityTopic = trim((string) $device->resolvedAvailabilityTopic());
 
@@ -179,96 +152,73 @@ class ConsumeMeterTopic extends Command
                             continue;
                         }
 
-                        $this->info("Subscribing to availability topic: {$availabilityTopic}");
+                        $this->line("Subscribing to availability: {$availabilityTopic}");
+                        Log::info('MQTT consumer subscribing to availability topic', ['topic' => $availabilityTopic, 'device_id' => $device->id]);
 
-                        Log::info('MQTT consumer subscribing to availability topic', [
-                            'topic' => $availabilityTopic,
-                            'device_id' => $device->id,
-                            'qos' => $subscribeQos,
-                        ]);
+                        $mqtt->subscribe(
+                            $availabilityTopic,
+                            function (string $topic, string $message) use ($availabilityProcessor, $ingestionRecorder) {
+                                try {
+                                    $topic = trim($topic);
+                                    $result = $availabilityProcessor->process($topic, $message);
 
-                        $mqtt->subscribe($availabilityTopic, function (string $topic, string $message) use ($availabilityProcessor, $ingestionRecorder) {
-                            try {
-                                $topic = trim($topic);
+                                    if ($result->status === 'ignored_unknown_topic') {
+                                        Log::warning('MQTT availability message ignored: topic not registered', ['topic' => $topic]);
 
-                                echo "\n=============================\n";
-                                echo 'Availability Topic: '.$topic."\n";
-                                echo 'Availability Payload: '.$message."\n";
+                                        $ingestionRecorder->record(
+                                            topic: $topic,
+                                            status: 'availability_unknown_topic',
+                                            payloadPreview: $ingestionRecorder->preview($message),
+                                        );
 
-                                $result = $availabilityProcessor->process($topic, $message);
+                                        return;
+                                    }
 
-                                if ($result->status === 'ignored_unknown_topic') {
-                                    echo "Device NOT FOUND for availability topic\n";
+                                    $device = $result->device;
 
-                                    Log::warning('MQTT availability message ignored because topic is not registered', [
-                                        'topic' => $topic,
-                                        'payload_size_bytes' => strlen($message),
+                                    if (! $result->wasStored() || ! $device) {
+                                        return;
+                                    }
+
+                                    Log::debug('Availability stored', ['device_id' => $device->id]);
+                                } catch (Throwable $e) {
+                                    Log::error('MQTT availability processing failed', ['topic' => $topic, 'error' => $e->getMessage()]);
+
+                                    return;
+                                }
+
+                                try {
+                                    event(new MeterAvailabilityUpdated($device->fresh()));
+                                } catch (Throwable $e) {
+                                    Log::warning('MQTT availability stored but broadcast failed', [
+                                        'device_id' => $device->id,
+                                        'error' => $e->getMessage(),
                                     ]);
-
-                                    $ingestionRecorder->record(
-                                        topic: $topic,
-                                        status: 'availability_unknown_topic',
-                                        payloadPreview: $ingestionRecorder->preview($message),
-                                    );
-
-                                    return;
                                 }
-
-                                $device = $result->device;
-
-                                if (! $result->wasStored() || ! $device) {
-                                    return;
-                                }
-
-                                echo 'Availability stored for device: ID='.$device->id."\n";
-                            } catch (Throwable $e) {
-                                echo 'ERROR: '.$e->getMessage()."\n";
-
-                                Log::error('MQTT availability processing failed', [
-                                    'topic' => $topic,
-                                    'error' => $e->getMessage(),
-                                ]);
-
-                                return;
-                            }
-
-                            try {
-                                event(new MeterAvailabilityUpdated($device->fresh()));
-                            } catch (Throwable $e) {
-                                echo 'BROADCAST WARNING: '.$e->getMessage()."\n";
-
-                                Log::warning('MQTT availability stored but broadcast failed', [
-                                    'topic' => $topic,
-                                    'device_id' => $device->id,
-                                    'availability_status' => $device->last_availability_status,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }, $subscribeQos);
+                            },
+                            $subscribeQos,
+                        );
                     }
-
-                    /*
-                    |--------------------------------------------------------------------------
-                    | Start MQTT loop
-                    |--------------------------------------------------------------------------
-                    */
 
                     $reconnectAttempt = 0;
                     $mqtt->loop(true);
                 } catch (Throwable $e) {
-                    $this->error($e->getMessage());
+                    if ($this->shouldStop) {
+                        break;
+                    }
 
-                    Log::error('MQTT consumer crashed', [
-                        'error' => $e->getMessage(),
-                    ]);
+                    $this->error($e->getMessage());
+                    Log::error('MQTT consumer crashed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
                 } finally {
                     try {
                         MQTT::disconnect();
                     } catch (Throwable $disconnectError) {
-                        Log::warning('MQTT consumer disconnect cleanup failed', [
-                            'error' => $disconnectError->getMessage(),
-                        ]);
+                        Log::warning('MQTT consumer disconnect cleanup failed', ['error' => $disconnectError->getMessage()]);
                     }
+                }
+
+                if ($this->shouldStop) {
+                    break;
                 }
 
                 $retryDelaySeconds = $this->nextRetryDelaySeconds(
@@ -278,50 +228,57 @@ class ConsumeMeterTopic extends Command
                 );
                 $reconnectAttempt++;
 
-                $this->warn("MQTT consumer disconnected. Reconnecting in {$retryDelaySeconds} second(s)...");
-                sleep($retryDelaySeconds);
+                $this->warn("MQTT disconnected. Reconnecting in {$retryDelaySeconds}s (attempt {$reconnectAttempt})...");
+                Log::warning('MQTT consumer reconnecting', ['attempt' => $reconnectAttempt, 'delay_seconds' => $retryDelaySeconds]);
+
+                // Sleep in 1-second ticks so a SIGTERM can interrupt the wait.
+                for ($i = 0; $i < $retryDelaySeconds && ! $this->shouldStop; $i++) {
+                    sleep(1);
+                    pcntl_signal_dispatch();
+                }
             }
         } finally {
             $this->releaseConsumerLock();
         }
 
+        $this->line('MQTT consumer exited cleanly.');
+        Log::info('MQTT consumer stopped', ['messages_processed' => $processedMessages]);
+
         return self::SUCCESS;
     }
 
-    /**
-     * Calculate a bounded exponential reconnect delay with light jitter.
-     * The jitter keeps multiple restarted consumers from reconnecting in lockstep
-     * after a broker or network outage.
-     */
-    private function nextRetryDelaySeconds(
-        int $attempt,
-        int $baseDelaySeconds,
-        int $maxDelaySeconds,
-    ): int {
-        $exponentialDelay = min(
-            $maxDelaySeconds,
-            $baseDelaySeconds * (2 ** min($attempt, 6)),
-        );
+    private function installSignalHandlers(): void
+    {
+        if (! extension_loaded('pcntl')) {
+            Log::warning('pcntl extension not available: SIGTERM will not be handled gracefully');
 
-        return min(
-            $maxDelaySeconds,
-            $exponentialDelay + random_int(0, min(3, $exponentialDelay)),
-        );
+            return;
+        }
+
+        $stop = function () {
+            $this->shouldStop = true;
+            Log::info('MQTT consumer received stop signal');
+        };
+
+        pcntl_signal(SIGTERM, $stop);
+        pcntl_signal(SIGINT, $stop);
+        pcntl_async_signals(true);
     }
 
-    /**
-     * Use a process-level file lock to prevent duplicate local consumers. This
-     * avoids cache TTL expiry problems while the MQTT loop blocks for hours.
-     */
+    private function nextRetryDelaySeconds(int $attempt, int $baseDelaySeconds, int $maxDelaySeconds): int
+    {
+        $exponentialDelay = min($maxDelaySeconds, $baseDelaySeconds * (2 ** min($attempt, 6)));
+
+        return min($maxDelaySeconds, $exponentialDelay + random_int(0, min(3, $exponentialDelay)));
+    }
+
     private function acquireConsumerLock(): bool
     {
         $lockPath = storage_path('framework/mqtt-consumer.lock');
         $handle = fopen($lockPath, 'c');
 
         if (! $handle) {
-            Log::error('MQTT consumer lock file could not be opened', [
-                'path' => $lockPath,
-            ]);
+            Log::error('MQTT consumer lock file could not be opened', ['path' => $lockPath]);
 
             return false;
         }
@@ -329,6 +286,7 @@ class ConsumeMeterTopic extends Command
         if (! flock($handle, LOCK_EX | LOCK_NB)) {
             fclose($handle);
 
+            /** @psalm-suppress UnreachableCode */
             return false;
         }
 
@@ -341,10 +299,6 @@ class ConsumeMeterTopic extends Command
         return true;
     }
 
-    /**
-     * Release the local process lock during graceful exits. Crash exits are also
-     * safe because the operating system releases flock handles automatically.
-     */
     private function releaseConsumerLock(): void
     {
         if (! is_resource($this->consumerLockHandle)) {

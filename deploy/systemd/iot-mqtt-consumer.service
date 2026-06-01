@@ -1,0 +1,21 @@
+[Unit]
+Description=IoT Meter MQTT Consumer
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/iot-meter-pilot
+ExecStart=/usr/bin/php artisan mqtt:consume-meter
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-mqtt-consumer
+
+# Prevent OOM kills — give it a ceiling before the kernel decides
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target
