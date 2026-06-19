@@ -49,7 +49,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
     Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
 
-    // Device Readings
-    Route::get('/devices/{device}/readings', [DeviceReadingController::class, 'index']);
-    Route::get('/devices/{id}/snapshot', [DeviceController::class, 'readings']);
+    // Device Readings — chart must be registered before the base readings route
+    // so Laravel doesn't try to resolve "chart" as a {device} parameter.
+    Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart']);
+    Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index']);
+    Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings']);
 });

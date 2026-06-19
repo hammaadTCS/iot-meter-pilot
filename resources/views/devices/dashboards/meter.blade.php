@@ -680,6 +680,38 @@
             color: var(--muted);
         }
 
+        /* ── Pagination bar ── */
+        .pagination-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            padding: 14px 0 4px;
+        }
+
+        .page-btn {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            padding: 6px 18px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--muted);
+            cursor: pointer;
+            transition: all .15s;
+            letter-spacing: .06em;
+        }
+        .page-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+        .page-btn:disabled { opacity: .35; cursor: not-allowed; }
+
+        .page-info {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--muted);
+            min-width: 80px;
+            text-align: center;
+        }
+
         @media (max-width: 720px) {
             .header-right,
             .device-picker,
@@ -901,11 +933,6 @@
         </div>
     </div>
 
-    {{-- Silent progress bar while background chunks are fetching --}}
-    <div id="loadingMoreBar" style="display:none;text-align:center;padding:6px 0;font-family:var(--font-mono);font-size:11px;color:var(--muted);letter-spacing:.06em;">
-        ↻ &nbsp;Loading more readings…
-    </div>
-
     {{-- ══════════════════════════════════════════════════════════
          CHARTS SECTION
          Wrapped in .section-wrap so the spinner can overlay it
@@ -998,6 +1025,13 @@
         </div>
     </div>{{-- /.section-wrap (table) --}}
 
+    {{-- ── Pagination bar ─────────────────────────────────────────────── --}}
+    <div class="pagination-bar">
+        <button class="page-btn" id="prevPageBtn" disabled>← Prev</button>
+        <span class="page-info" id="pageInfo">—</span>
+        <button class="page-btn" id="nextPageBtn" disabled>Next →</button>
+    </div>
+
 </div>{{-- /.shell --}}
 
 </div>{{-- /.shell --}}
@@ -1012,83 +1046,63 @@
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 1. CONFIGURATION
- * Change DEVICE_ID or REFRESH_INTERVAL here if needed.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/** The device ID injected by Blade — used to build the API URL. */
-const DEVICE_ID = {{ $device->id }};
+const DEVICE_ID        = {{ $device->id }};
+const API_TABLE        = `/api/devices/${DEVICE_ID}/readings`;
+const API_CHART        = `/api/devices/${DEVICE_ID}/readings/chart`;
+const API_STATUS       = `/api/devices/${DEVICE_ID}/status`;
+const REFRESH_INTERVAL = 30;  // seconds between background polls
+const TABLE_PER_PAGE   = 100; // must match DeviceReadingController::TABLE_PER_PAGE
 
-/** Base API endpoint. Query params are appended dynamically. */
-const API_BASE = `/api/devices/${DEVICE_ID}/readings`;
-const STATUS_API_BASE = `/api/devices/${DEVICE_ID}/status`;
-
-/** Initial health snapshot rendered by Blade. */
-const INITIAL_DEVICE_HEALTH = @json($deviceHealth);
-
-/** Initial availability snapshot rendered by Blade. */
+/** Blade-rendered snapshots used to seed the UI before the first fetch. */
+const INITIAL_DEVICE_HEALTH       = @json($deviceHealth);
 const INITIAL_DEVICE_AVAILABILITY = @json($deviceAvailability);
-
-/** Initial payload issue snapshot rendered by Blade. */
-const INITIAL_DEVICE_ISSUE = @json($deviceIssue);
-
-/** Range-independent current KPI snapshot rendered by Blade. */
-const INITIAL_CURRENT_SNAPSHOT = @json($currentSnapshot);
-
-/**
- * How often (in seconds) to poll for new data silently in the background.
- * The first load always shows a full spinner; subsequent polls are silent.
- */
-const REFRESH_INTERVAL = 30; // seconds
+const INITIAL_DEVICE_ISSUE        = @json($deviceIssue);
+const INITIAL_CURRENT_SNAPSHOT    = @json($currentSnapshot);
 
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 2. SHARED STATE
- * These variables are read/written across multiple functions.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/** Currently selected range key (matches data-range on buttons). */
-let activeRange = '1h';
+/** Active preset range key, or 'custom' when a date/time range is applied. */
+let activeRange     = '1h';
 
-/**
- * Tie-breaker for incremental refreshes when two rows share the same
- * recorded-at second.
- */
-let lastKnownId = 0;
-
-/** Latest effective recorded-at timestamp known to the dashboard. */
-let lastKnownRecordedAt = null;
-
-/**
- * In-memory array of ALL readings for the current range.
- * Stored newest-first (index 0 = most recent).
- * Charts use it in reversed (oldest-first) order.
- */
-let allReadings = [];
-
-/** True while loadRemainingChunks() is running — prevents overlapping loops. */
-let isLoadingMore = false;
-
-/** ISO datetime strings when a custom range is active. Null = preset range. */
+/** ISO strings for the custom date/time range. Null = preset range is active. */
 let customRangeFrom = null;
 let customRangeTo   = null;
 
-/** Reference to the setInterval timer so we can clear/restart it. */
-let autoRefreshTimer = null;
+/**
+ * Chart data — up to 500 evenly-sampled rows, oldest-first.
+ * Drives all five Chart.js charts. Replaced entirely on range change.
+ */
+let chartReadings = [];
 
-/** Countdown value shown in the live-pill. */
+/**
+ * Table data — exactly one page of raw rows, newest-first.
+ * Only the current page is held in memory; navigating fetches fresh data.
+ */
+let tableReadings    = [];
+let tablePage        = 1;
+let tableTotal       = 0;
+let tableTotalPages  = 1;
+
+/**
+ * After-cursor for the background-refresh poll.
+ * Tracks the newest row the dashboard has seen so the poll only fetches deltas.
+ */
+let lastKnownId         = 0;
+let lastKnownRecordedAt = null;
+
+let autoRefreshTimer = null;
 let countdownSeconds = REFRESH_INTERVAL;
 
-/** Latest successful telemetry timestamp used to compute live health state. */
-let currentLastSeenAt = INITIAL_DEVICE_HEALTH.last_seen_at;
-
-/** Current MQTT availability state for the selected device. */
+/** KPI / health / availability / issue state — range-independent. */
+let currentLastSeenAt        = INITIAL_DEVICE_HEALTH.last_seen_at;
 let currentAvailabilityState = INITIAL_DEVICE_AVAILABILITY;
-
-/** Active payload issue state for the selected device. */
-let currentIssueState = INITIAL_DEVICE_ISSUE;
-
-/** Current KPI snapshot stays independent from the selected chart range. */
-let currentSnapshot = INITIAL_CURRENT_SNAPSHOT;
+let currentIssueState        = INITIAL_DEVICE_ISSUE;
+let currentSnapshot          = INITIAL_CURRENT_SNAPSHOT;
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1331,46 +1345,6 @@ function compareReadingsNewestFirst(a, b) {
     }
 
     return Number(b?.id ?? 0) - Number(a?.id ?? 0);
-}
-
-/**
- * Update the incremental refresh cursor from the latest row in API order.
- *
- * @param {Array} readings
- */
-function syncReadingsCursor(readings) {
-    if (!readings.length) {
-        return;
-    }
-
-    const latestReading = readings[readings.length - 1];
-
-    lastKnownId = Number(latestReading?.id ?? 0);
-    lastKnownRecordedAt = latestReading?.created_at ?? null;
-}
-
-/**
- * Merge incoming readings into the in-memory store without duplicating ids.
- * Updated rows are re-sorted by their effective recorded-at timestamp.
- *
- * @param {Array} incomingReadings
- */
-function mergeIncomingReadings(incomingReadings) {
-    const readingsById = new Map(
-        allReadings.map(reading => [Number(reading.id), reading])
-    );
-
-    incomingReadings.forEach(reading => {
-        const readingId = Number(reading.id);
-        const existing = readingsById.get(readingId) ?? {};
-
-        readingsById.set(readingId, {
-            ...existing,
-            ...reading,
-        });
-    });
-
-    allReadings = Array.from(readingsById.values()).sort(compareReadingsNewestFirst);
 }
 
 /**
@@ -1677,7 +1651,7 @@ function clearActiveIssueState(recoveredAt = null) {
  * @returns {Promise<object>}
  */
 async function fetchDeviceStatus() {
-    const response = await fetch(STATUS_API_BASE, {
+    const response = await fetch(API_STATUS, {
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     });
 
@@ -1972,21 +1946,17 @@ function readingFallsInRange(reading, range) {
 }
 
 /**
- * Applies a realtime reading to the dashboard without waiting for the next poll.
+ * Ingest a realtime WebSocket reading without waiting for the next poll.
+ * Updates both the chart (append to end) and the table (prepend if on page 1).
  *
  * @param {object} eventPayload
  */
 function ingestRealtimeReading(eventPayload) {
     const reading = normalizeRealtimeReading(eventPayload);
-
-    if (!reading) {
-        return;
-    }
+    if (!reading) return;
 
     updateLastSeen(eventPayload.last_seen_at ?? eventPayload.reading.received_at);
 
-    // Out-of-order packets are still useful history, but the backend marks
-    // them so they cannot move the range-independent KPI strip backward.
     if (eventPayload.latest_state_updated !== false) {
         updateCurrentSnapshot(normalizeRealtimeSnapshot(eventPayload));
     }
@@ -1994,28 +1964,42 @@ function ingestRealtimeReading(eventPayload) {
     clearActiveIssueState(eventPayload.last_seen_at ?? eventPayload.reading.received_at);
     restoreAvailabilityFromTelemetry();
 
-    const existingReadingIndex = allReadings.findIndex(row => Number(row.id) === reading.id);
+    if (!readingFallsInRange(reading, activeRange)) return;
 
-    if (existingReadingIndex !== -1) {
-        mergeIncomingReadings([reading]);
-        syncReadingsCursor([...allReadings].slice().reverse());
+    // ── Chart: append the new reading to the sampled set ──────────────────
+    const existingChartIdx = chartReadings.findIndex(r => Number(r.id) === reading.id);
+    if (existingChartIdx !== -1) {
+        chartReadings[existingChartIdx] = { ...chartReadings[existingChartIdx], ...reading };
+    } else {
+        chartReadings = [...chartReadings, reading]; // append; oldest-first order preserved
+    }
+    updateCharts(chartReadings, activeRange);
 
-        updateCharts([...allReadings].reverse(), activeRange);
-        updateTable(activeRange, 0);
-        return;
+    // ── Table: update based on which page is visible ───────────────────────
+    if (tablePage === 1) {
+        const existingTableIdx = tableReadings.findIndex(r => Number(r.id) === reading.id);
+        if (existingTableIdx !== -1) {
+            // Update existing row in-place.
+            tableReadings[existingTableIdx] = { ...tableReadings[existingTableIdx], ...reading };
+            updateTable(activeRange, 0);
+        } else {
+            // Prepend new row; keep the page at TABLE_PER_PAGE rows.
+            tableReadings   = [reading, ...tableReadings].slice(0, TABLE_PER_PAGE);
+            tableTotal     += 1;
+            tableTotalPages = Math.max(1, Math.ceil(tableTotal / TABLE_PER_PAGE));
+            updateTable(activeRange, 1);
+            renderPagination();
+            showNewBadge(1);
+        }
+    } else {
+        // Not on page 1 — update the total count only.
+        tableTotal     += 1;
+        tableTotalPages = Math.max(1, Math.ceil(tableTotal / TABLE_PER_PAGE));
+        renderPagination();
+        showNewBadge(1);
     }
 
-    if (!readingFallsInRange(reading, activeRange)) {
-        return;
-    }
-
-    mergeIncomingReadings([reading]);
-    syncReadingsCursor([...allReadings].slice().reverse());
-
-    updateCharts([...allReadings].reverse(), activeRange);
-    updateTable(activeRange, 1);
     updateKPIs();
-    showNewBadge(1);
 }
 
 /**
@@ -2062,236 +2046,230 @@ function ingestAvailabilityUpdate(eventPayload) {
 
 
 /* ═══════════════════════════════════════════════════════════════════════
- * 7. TABLE UPDATER
- * Renders the table from allReadings (newest-first).
- * When prepending new rows after a background refresh, each new row
- * gets the .row-new class so it flashes briefly.
+ * 7. TABLE + PAGINATION
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * Rebuilds the entire readings table from allReadings.
- * allReadings is newest-first → newest row appears at the top of the table.
+ * Render the current page of tableReadings into the DOM.
+ * Rows are newest-first; the first newRowCount rows receive the flash animation.
  *
- * @param {string} range        — current range (for date formatting)
- * @param {number} newRowCount  — how many rows at the start are "new"
- *                                (they get the flash animation)
+ * @param {string} range       — active range key (for date formatting)
+ * @param {number} newRowCount — leading rows to flash (0 = no flash)
  */
 function updateTable(range, newRowCount = 0) {
     const tbody = document.getElementById('readings-body');
 
-    document.getElementById('rowCount').textContent = allReadings.length.toLocaleString();
-
-    const rangeDisplay = (activeRange === 'custom' && customRangeFrom && customRangeTo)
-        ? `${new Date(customRangeFrom).toLocaleString('en-GB')} → ${new Date(customRangeTo).toLocaleString('en-GB')}`
-        : activeRange.toUpperCase();
-    document.getElementById('rangeLabel').textContent = rangeDisplay;
-
-    if (!allReadings.length) {
+    if (!tableReadings.length) {
         tbody.innerHTML = `<tr><td colspan="8">
             <div class="empty-state">No readings found for this time range.</div>
         </td></tr>`;
         return;
     }
 
-    tbody.innerHTML = allReadings.map((r, i) => {
-        // The first newRowCount rows are newly arrived — give them the flash class
+    tbody.innerHTML = tableReadings.map((r, i) => {
         const flashClass = (newRowCount > 0 && i < newRowCount) ? 'row-new' : '';
         return `
         <tr class="${flashClass}">
             <td>${fmtTableCell(r.created_at, range)}</td>
-            <td>${r.voltage             ?? '—'}</td>
-            <td>${r.current             ?? '—'}</td>
-            <td>${r.power               ?? '—'}</td>
-            <td>${r.energy_computed_wh  ?? '—'}</td>
-            <td>${r.energy_pzem_wh      ?? '—'}</td>
-            <td>${r.frequency           ?? '—'}</td>
-            <td>${r.pf                  ?? '—'}</td>
+            <td>${r.voltage            ?? '—'}</td>
+            <td>${r.current            ?? '—'}</td>
+            <td>${r.power              ?? '—'}</td>
+            <td>${r.energy_computed_wh ?? '—'}</td>
+            <td>${r.energy_pzem_wh     ?? '—'}</td>
+            <td>${r.frequency          ?? '—'}</td>
+            <td>${r.pf                 ?? '—'}</td>
         </tr>`;
     }).join('');
+}
+
+/**
+ * Sync the Prev/Next buttons and the "X–Y of Z · range" info line.
+ * Called after any operation that changes tablePage, tableTotal, or activeRange.
+ */
+function renderPagination() {
+    const prevBtn  = document.getElementById('prevPageBtn');
+    const nextBtn  = document.getElementById('nextPageBtn');
+    const pageInfo = document.getElementById('pageInfo');
+    const rowCount = document.getElementById('rowCount');
+    const rangeLabel = document.getElementById('rangeLabel');
+
+    if (prevBtn) prevBtn.disabled = tablePage <= 1;
+    if (nextBtn) nextBtn.disabled = tablePage >= tableTotalPages;
+
+    const from = tableTotal === 0 ? 0 : (tablePage - 1) * TABLE_PER_PAGE + 1;
+    const to   = Math.min(tablePage * TABLE_PER_PAGE, tableTotal);
+
+    if (pageInfo) {
+        pageInfo.textContent = tableTotal > 0
+            ? `Page ${tablePage} of ${tableTotalPages}`
+            : 'No data';
+    }
+
+    if (rowCount) {
+        rowCount.textContent = tableTotal > 0
+            ? `${from.toLocaleString()}–${to.toLocaleString()} of ${tableTotal.toLocaleString()}`
+            : '—';
+    }
+
+    if (rangeLabel) {
+        rangeLabel.textContent = (activeRange === 'custom' && customRangeFrom && customRangeTo)
+            ? `${new Date(customRangeFrom).toLocaleString('en-GB')} → ${new Date(customRangeTo).toLocaleString('en-GB')}`
+            : activeRange.toUpperCase();
+    }
+}
+
+/**
+ * Navigate to a specific table page.
+ * Fetches the page from the server, replaces tableReadings, and re-renders.
+ *
+ * @param {number} page
+ */
+async function goToPage(page) {
+    if (page < 1 || page > tableTotalPages) return;
+
+    document.getElementById('tableLoader').classList.add('show');
+
+    try {
+        const { rows, meta } = await fetchTableData(page);
+        tableReadings   = rows;
+        tablePage       = meta.current_page;
+        tableTotal      = meta.total;
+        tableTotalPages = meta.last_page;
+        updateTable(activeRange, 0);
+        renderPagination();
+    } catch (err) {
+        console.warn('[MeterDash] goToPage failed:', err);
+        showConnectionIssue('Could not load page — please try again.');
+    } finally {
+        document.getElementById('tableLoader').classList.remove('show');
+    }
 }
 
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 8. API FETCH HELPERS
+ * Three focused functions — one per data path.
  * ═══════════════════════════════════════════════════════════════════════ */
 
 /**
- * Fetches readings from the API.
- *
- * On a FULL LOAD (range change or first load):
- *   GET /api/devices/{id}/readings?range=1h
- *   → returns all readings in the window, oldest first
- *
- * On a BACKGROUND REFRESH:
- *   GET /api/devices/{id}/readings?range=1h&after_received_at=<timestamp>&after_id=<id>
- *   → returns only rows recorded after the latest row the UI has seen
- *   → if nothing new, returns an empty array
- *
- * @param {string}  range      — range key to send
- * @param {number}  afterId    — row id tie-breaker for same-second readings
- * @param {string|null} afterRecordedAt — effective recorded-at cursor
- * @returns {Promise<Array>}   — array of reading objects, oldest first
- * @throws  on network/parse errors
+ * Build the range/custom-range portion of a query string.
+ * Reads from shared state so callers don't need to pass it explicitly.
  */
-async function fetchReadings(range, afterId = 0, afterRecordedAt = null) {
-    let url = `${API_BASE}?range=${range}`;
-
-    if (afterRecordedAt) {
-        url += `&after_received_at=${encodeURIComponent(afterRecordedAt)}`;
-        url += `&after_id=${afterId}`;
-    } else if (afterId > 0) {
-        url += `&after=${afterId}`;
+function rangeParams() {
+    if (customRangeFrom && customRangeTo) {
+        return `from=${encodeURIComponent(customRangeFrom)}&to=${encodeURIComponent(customRangeTo)}`;
     }
-
-    const response = await fetch(url, {
-        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    });
-
-    if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-    }
-
-    const json = await response.json();
-
-    // Support both { readings: [...] } and plain [...] response shapes
-    return Array.isArray(json) ? json : (json.readings ?? []);
+    return `range=${activeRange}`;
 }
 
-
 /**
- * Fetch one chunk (up to 500 rows) using the paginated readings API.
- * Reads activeRange / customRangeFrom / customRangeTo from shared state.
+ * Fetch chart data — up to 500 evenly-sampled rows, oldest-first.
+ * The backend handles the sampling so this always returns a small payload
+ * regardless of how many raw rows exist in the selected range.
+ *
+ * @returns {Promise<Array>}
  */
-async function fetchPage(beforeRecordedAt = null, beforeId = 0) {
-    let url = `${API_BASE}?limit=500`;
-
-    if (customRangeFrom && customRangeTo) {
-        url += `&from=${encodeURIComponent(customRangeFrom)}&to=${encodeURIComponent(customRangeTo)}`;
-    } else {
-        url += `&range=${activeRange}`;
-    }
-
-    if (beforeRecordedAt) {
-        url += `&before_received_at=${encodeURIComponent(beforeRecordedAt)}`;
-        url += `&before_id=${beforeId}`;
-    }
-
-    const response = await fetch(url, {
+async function fetchChartData() {
+    const response = await fetch(`${API_CHART}?${rangeParams()}`, {
         headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
     });
-
-    if (!response.ok) throw new Error(`API error: ${response.status}`);
-
+    if (!response.ok) throw new Error(`Chart API ${response.status}`);
     const json = await response.json();
+    return Array.isArray(json) ? json : [];
+}
 
+/**
+ * Fetch one page of raw table data, newest-first.
+ *
+ * @param {number} page
+ * @returns {Promise<{ rows: Array, meta: object }>}
+ */
+async function fetchTableData(page = 1) {
+    const response = await fetch(`${API_TABLE}?${rangeParams()}&page=${page}`, {
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    if (!response.ok) throw new Error(`Table API ${response.status}`);
+    const json = await response.json();
     return {
         rows: Array.isArray(json.data) ? json.data : [],
-        meta: json.meta ?? { has_more: false, next_before_received_at: null, next_before_id: null },
+        meta: json.meta ?? { current_page: 1, last_page: 1, per_page: TABLE_PER_PAGE, total: 0 },
     };
 }
 
-function showLoadingMore() {
-    const el = document.getElementById('loadingMoreBar');
-    if (el) el.style.display = 'block';
-}
-
-function hideLoadingMore() {
-    const el = document.getElementById('loadingMoreBar');
-    if (el) el.style.display = 'none';
+/**
+ * Fetch only rows newer than the last-known cursor (background refresh).
+ * Returns a plain oldest-first array — matches the backend's refresh path.
+ *
+ * @returns {Promise<Array>}
+ */
+async function fetchNewRows() {
+    let url = `${API_TABLE}?${rangeParams()}`;
+    if (lastKnownRecordedAt) {
+        url += `&after_received_at=${encodeURIComponent(lastKnownRecordedAt)}&after_id=${lastKnownId}`;
+    } else if (lastKnownId > 0) {
+        url += `&after_id=${lastKnownId}`;
+    }
+    const response = await fetch(url, {
+        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+    });
+    if (!response.ok) throw new Error(`Refresh API ${response.status}`);
+    const json = await response.json();
+    return Array.isArray(json) ? json : [];
 }
 
 
 /* ═══════════════════════════════════════════════════════════════════════
- * 9. FULL LOAD + PROGRESSIVE CHUNK LOADER
+ * 9. FULL LOAD
+ * Fetches chart data and table page 1 in parallel. Fast at any range size
+ * because the chart endpoint always returns ≤500 rows and the table returns
+ * exactly one page of 100 rows.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/**
- * Silently fetches all remaining chunks after the first paint.
- * Aborts immediately if the user switches range mid-load.
- */
-async function loadRemainingChunks(snapshotRange, snapshotFrom, snapshotTo, beforeRecordedAt, beforeId) {
-    if (isLoadingMore) return;
-    isLoadingMore = true;
-    showLoadingMore();
-
-    try {
-        let cursor = { before_received_at: beforeRecordedAt, before_id: beforeId };
-
-        while (true) {
-            if (activeRange !== snapshotRange) break;
-            if (customRangeFrom !== snapshotFrom || customRangeTo !== snapshotTo) break;
-
-            const { rows, meta } = await fetchPage(cursor.before_received_at, cursor.before_id);
-
-            if (!rows.length) break;
-
-            mergeIncomingReadings(rows);
-            updateCharts([...allReadings].reverse(), activeRange);
-            updateTable(activeRange, 0);
-
-            if (!meta.has_more) break;
-
-            cursor = {
-                before_received_at: meta.next_before_received_at,
-                before_id: meta.next_before_id ?? 0,
-            };
-        }
-    } catch (err) {
-        console.warn('[MeterDash] loadRemainingChunks failed:', err);
-    } finally {
-        isLoadingMore = false;
-        hideLoadingMore();
-    }
-}
-
-/**
- * Fetch the first 500 rows immediately for a fast first paint,
- * then silently load remaining chunks in the background.
- */
 async function fullLoad(range) {
     document.getElementById('chartsLoader').classList.add('show');
     document.getElementById('tableLoader').classList.add('show');
 
     try {
-        const [{ rows, meta }, statusPayload] = await Promise.all([
-            fetchPage(),
+        // Three parallel requests — chart sample, table page 1, device status.
+        const [chartRows, { rows: tableRows, meta }, statusPayload] = await Promise.all([
+            fetchChartData(),
+            fetchTableData(1),
             fetchDeviceStatus(),
         ]);
 
-        // Server returns DESC (newest-first) for paginated responses.
-        allReadings = rows;
+        // Chart — oldest-first, ready for Chart.js.
+        chartReadings = chartRows;
+        updateCharts(chartReadings, range);
 
-        if (rows.length > 0) {
-            lastKnownId         = Number(rows[0].id ?? 0);
-            lastKnownRecordedAt = rows[0].created_at ?? null;
+        // Table — newest-first, one page only.
+        tableReadings   = tableRows;
+        tablePage       = meta.current_page;
+        tableTotal      = meta.total;
+        tableTotalPages = meta.last_page;
+        updateTable(range, 0);
+        renderPagination();
+
+        // Seed the background-refresh cursor from the newest row on page 1.
+        if (tableRows.length > 0) {
+            lastKnownId         = Number(tableRows[0].id ?? 0);
+            lastKnownRecordedAt = tableRows[0].created_at ?? null;
         } else {
             lastKnownId         = 0;
             lastKnownRecordedAt = null;
         }
 
-        updateCharts([...allReadings].reverse(), range);
-        updateTable(range, 0);
         clearConnectionIssue();
         applyRuntimeStatus(statusPayload);
 
         if (!currentSnapshot) {
-            updateCurrentSnapshot(makeSnapshotFromReading(rows[0] ?? null));
-        }
-
-        if (meta.has_more) {
-            loadRemainingChunks(
-                range, customRangeFrom, customRangeTo,
-                meta.next_before_received_at, meta.next_before_id ?? 0
-            );
+            updateCurrentSnapshot(makeSnapshotFromReading(tableRows[0] ?? null));
         }
 
     } catch (err) {
         console.error('[MeterDash] fullLoad failed:', err);
-        showConnectionIssue('Dashboard connection issue. Readings could not be refreshed, so meter health is based on the last successful telemetry timestamp.');
+        showConnectionIssue('Dashboard connection issue — readings could not be loaded.');
         document.getElementById('readings-body').innerHTML =
-            `<tr><td colspan="8"><div class="empty-state">
-                ⚠ Failed to load data. Check console.
-            </div></td></tr>`;
+            `<tr><td colspan="8"><div class="empty-state">⚠ Failed to load data.</div></td></tr>`;
     } finally {
         document.getElementById('chartsLoader').classList.remove('show');
         document.getElementById('tableLoader').classList.remove('show');
@@ -2301,69 +2279,55 @@ async function fullLoad(range) {
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 10. BACKGROUND / SILENT REFRESH
- * Called every REFRESH_INTERVAL seconds.
- * Does NOT show a spinner — UI stays interactive.
- * Only fetches rows newer than lastKnownId.
- * Prepends new rows to allReadings, flashes them in the table,
- * and appends them to the charts.
+ * Runs every REFRESH_INTERVAL seconds. Fetches new rows via the after-cursor
+ * and re-fetches the chart sample so both stay current.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-/**
- * Silently polls for new readings without blocking the UI.
- * - Sends ?after=<lastKnownId> so only new rows are returned.
- * - Prepends them to allReadings (so newest stays at index 0).
- * - Appends them to charts (so time still flows left → right).
- * - Shows a brief "N new readings" badge.
- */
 async function backgroundRefresh() {
     try {
-        // Fetch only rows newer than what we already have
-        const [newRows, statusPayload] = await Promise.all([
-            fetchReadings(activeRange, lastKnownId, lastKnownRecordedAt),
+        // Parallel: delta rows for the table + refreshed chart sample + device status.
+        const [newRows, freshChart, statusPayload] = await Promise.all([
+            fetchNewRows(),
+            fetchChartData(),
             fetchDeviceStatus(),
         ]);
+
         clearConnectionIssue();
         applyRuntimeStatus(statusPayload);
 
-        if (!newRows.length) {
-            // Nothing new — no UI update needed
-            return;
+        // Always update the chart — the sampled set shifts as time moves forward.
+        chartReadings = freshChart;
+        updateCharts(chartReadings, activeRange);
+
+        if (!newRows.length) return;
+
+        // Advance the cursor to the newest row returned.
+        const newestRow = newRows[newRows.length - 1];
+        lastKnownId         = Number(newestRow?.id ?? lastKnownId);
+        lastKnownRecordedAt = newestRow?.created_at ?? lastKnownRecordedAt;
+
+        if (newestRow?.created_at) updateLastSeen(newestRow.created_at);
+
+        if (tablePage === 1) {
+            // Page 1 shows the newest rows — prepend the new arrivals.
+            const newNewestFirst = [...newRows].sort(compareReadingsNewestFirst);
+            tableReadings = [...newNewestFirst, ...tableReadings].slice(0, TABLE_PER_PAGE);
+            tableTotal   += newRows.length;
+            tableTotalPages = Math.max(1, Math.ceil(tableTotal / TABLE_PER_PAGE));
+            updateTable(activeRange, newNewestFirst.length);
+            renderPagination();
+        } else {
+            // Deeper pages: update the total count but don't disturb the visible rows.
+            tableTotal  += newRows.length;
+            tableTotalPages = Math.max(1, Math.ceil(tableTotal / TABLE_PER_PAGE));
+            renderPagination();
         }
 
-        syncReadingsCursor(newRows);
-
-        /*
-         * newRows is oldest→newest (API order).
-         * Prepend reversed newRows to allReadings so allReadings stays newest-first.
-         */
-        const newRowsNewestFirst = [...newRows].sort(compareReadingsNewestFirst);
-        mergeIncomingReadings(newRows);
-
-        // Rebuild charts with the full dataset (oldest→newest order)
-        const chartOrder = [...allReadings].reverse();
-        updateCharts(chartOrder, activeRange);
-
-        // Rebuild table — pass newRows.length so they get the flash animation
-        updateTable(activeRange, newRowsNewestFirst.length);
-
-        /*
-         * KPI cards are driven by /status current_snapshot instead of the newest
-         * polled row. That preserves the backend's monotonic latest-state rule
-         * when delayed MQTT packets arrive after a newer sample.
-         */
-
-        // Show the "N new readings" badge briefly
-        showNewBadge(newRowsNewestFirst.length);
-
-        const latestReading = newRows[newRows.length - 1] ?? null;
-
-        if (latestReading?.created_at) {
-            updateLastSeen(latestReading.created_at);
-        }
+        showNewBadge(newRows.length);
 
     } catch (err) {
         console.warn('[MeterDash] backgroundRefresh failed:', err);
-        showConnectionIssue('Dashboard connection issue. Background refresh failed, so meter health is based on the last successful telemetry timestamp.');
+        showConnectionIssue('Background refresh failed — meter health based on last successful timestamp.');
     }
 }
 
@@ -2444,6 +2408,18 @@ function showNewBadge(count) {
  *   4. Runs a fullLoad for the new range
  *   5. Restarts the auto-refresh timer from the beginning
  */
+/** Reset all range/chart/table state before loading a new window. */
+function resetState() {
+    chartReadings       = [];
+    tableReadings       = [];
+    tablePage           = 1;
+    tableTotal          = 0;
+    tableTotalPages     = 1;
+    lastKnownId         = 0;
+    lastKnownRecordedAt = null;
+}
+
+// ── Preset range buttons ──────────────────────────────────────────────────
 document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
     btn.addEventListener('click', async () => {
         document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
@@ -2454,18 +2430,15 @@ document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
         document.getElementById('customRangeCard').classList.remove('is-active');
         document.getElementById('clearCustomRangeBtn').style.display = 'none';
 
-        activeRange         = btn.dataset.range;
-        isLoadingMore       = false;
-        lastKnownId         = 0;
-        lastKnownRecordedAt = null;
-        allReadings         = [];
-        hideLoadingMore();
+        activeRange = btn.dataset.range;
+        resetState();
 
         await fullLoad(activeRange);
         startAutoRefresh();
     });
 });
 
+// ── Custom date/time range ────────────────────────────────────────────────
 document.getElementById('applyCustomRangeBtn').addEventListener('click', async () => {
     const fromVal = document.getElementById('customFrom').value;
     const toVal   = document.getElementById('customTo').value;
@@ -2474,7 +2447,6 @@ document.getElementById('applyCustomRangeBtn').addEventListener('click', async (
         alert('Please select both a start and end date/time.');
         return;
     }
-
     if (new Date(fromVal) >= new Date(toVal)) {
         alert('Start date/time must be before end date/time.');
         return;
@@ -2484,17 +2456,13 @@ document.getElementById('applyCustomRangeBtn').addEventListener('click', async (
     document.getElementById('customRangeCard').classList.add('is-active');
     document.getElementById('clearCustomRangeBtn').style.display = '';
 
-    customRangeFrom     = new Date(fromVal).toISOString();
-    customRangeTo       = new Date(toVal).toISOString();
-    activeRange         = 'custom';
-    isLoadingMore       = false;
-    allReadings         = [];
-    lastKnownId         = 0;
-    lastKnownRecordedAt = null;
-    hideLoadingMore();
+    customRangeFrom = new Date(fromVal).toISOString();
+    customRangeTo   = new Date(toVal).toISOString();
+    activeRange     = 'custom';
+    resetState();
 
     await fullLoad('custom');
-    stopAutoRefresh();
+    stopAutoRefresh(); // historical window — no live polling needed
 });
 
 document.getElementById('clearCustomRangeBtn').addEventListener('click', async () => {
@@ -2506,18 +2474,18 @@ document.getElementById('clearCustomRangeBtn').addEventListener('click', async (
     document.querySelectorAll('.range-btn').forEach(b => b.classList.remove('active'));
     document.querySelector('.range-btn[data-range="1h"]').classList.add('active');
 
-    customRangeFrom     = null;
-    customRangeTo       = null;
-    activeRange         = '1h';
-    isLoadingMore       = false;
-    allReadings         = [];
-    lastKnownId         = 0;
-    lastKnownRecordedAt = null;
-    hideLoadingMore();
+    customRangeFrom = null;
+    customRangeTo   = null;
+    activeRange     = '1h';
+    resetState();
 
     await fullLoad('1h');
     startAutoRefresh();
 });
+
+// ── Table pagination ──────────────────────────────────────────────────────
+document.getElementById('prevPageBtn')?.addEventListener('click', () => goToPage(tablePage - 1));
+document.getElementById('nextPageBtn')?.addEventListener('click', () => goToPage(tablePage + 1));
 
 /**
  * Manual refresh button: immediately fires a background refresh
@@ -2553,8 +2521,8 @@ window.addEventListener('meter-availability-updated', (event) => {
     updateKPIs();
     applyDeviceAvailabilityState(currentAvailabilityState);
     refreshDeviceHealth();
-    await fullLoad(activeRange);   // first data load (shows spinner)
-    startAutoRefresh();            // begin the 30-second polling cycle
+    await fullLoad(activeRange); // first load: chart sample + table page 1 in parallel
+    startAutoRefresh();          // begin the 30-second background poll cycle
 })();
 </script>
 
