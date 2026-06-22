@@ -14,6 +14,10 @@ class MeterProcessingResult
         public ?string $errorCode = null,
         public ?string $errorMessage = null,
         public bool $latestStateUpdated = false,
+        // Current-month consumption (kWh) after this reading was folded in, or
+        // null when the reading did not update the monthly aggregate. Lets the
+        // consumer broadcast the figure live without a follow-up query.
+        public ?float $monthlyUnitsKwh = null,
     ) {}
 
     public static function ignoredUnknownTopic(): self
@@ -38,12 +42,14 @@ class MeterProcessingResult
         Device $device,
         MeterReading $reading,
         bool $latestStateUpdated = true,
+        ?float $monthlyUnitsKwh = null,
     ): self {
         return new self(
             status: 'stored',
             device: $device,
             reading: $reading,
             latestStateUpdated: $latestStateUpdated,
+            monthlyUnitsKwh: $monthlyUnitsKwh,
         );
     }
 

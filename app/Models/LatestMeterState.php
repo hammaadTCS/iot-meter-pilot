@@ -15,6 +15,10 @@ class LatestMeterState extends Model
         'power',
         'energy_computed_wh',
         'energy_pzem_wh',
+        // Cached current-month consumption in kWh ("units"), kept here so the
+        // dashboard snapshot stays a single-row read. The source of truth is the
+        // meter_monthly_consumption table; this column mirrors its current row.
+        'monthly_units_kwh',
         'frequency',
         'pf',
         'received_at',

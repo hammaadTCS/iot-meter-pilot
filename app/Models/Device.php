@@ -96,6 +96,16 @@ class Device extends Model
     }
 
     /**
+     * A device has many monthly consumption rollups (one per calendar month).
+     * Used by monthly reporting; the *current* month's figure is also cached on
+     * latestState for fast dashboard reads.
+     */
+    public function monthlyConsumptions(): HasMany
+    {
+        return $this->hasMany(MeterMonthlyConsumption::class);
+    }
+
+    /**
      * Build a range-independent current snapshot from the latest state table.
      */
     public function currentSnapshot(): ?array
@@ -112,6 +122,9 @@ class Device extends Model
             'power' => $latestState->power,
             'energy_computed_wh' => $latestState->energy_computed_wh,
             'energy_pzem_wh' => $latestState->energy_pzem_wh,
+            // Current-month consumption (kWh). Read straight from the cached
+            // latest state — no extra query on the dashboard's 30s status poll.
+            'monthly_units_kwh' => $latestState->monthly_units_kwh,
             'frequency' => $latestState->frequency,
             'pf' => $latestState->pf,
             'recorded_at' => ($latestState->received_at ?? $latestState->updated_at ?? $latestState->created_at)?->toIso8601String(),

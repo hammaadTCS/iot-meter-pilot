@@ -116,7 +116,7 @@ graph TB
 |----------|--------|
 | UC1–UC6 Authentication | Done |
 | UC7–UC11 Device Monitoring | Done |
-| UC12 Energy Summary (R-1) | Not built |
+| UC12 Energy Summary (R-1) | Data captured (`meter_monthly_consumption`); report UI not built |
 | UC13 Detailed Readings (R-2) | Not built |
 | UC14 Export CSV | Not built |
 | UC15 Alert History UI | Not built |

@@ -846,18 +846,23 @@
             <div class="kpi-unit">W</div>
         </div>
 
+        {{-- Units (kWh) consumed in the current calendar month. Maintained
+             incrementally during ingestion (see meter_monthly_consumption) and
+             cached on the latest state, so this card reads with no extra query. --}}
         <div class="kpi kpi--energy-c">
-            <span class="kpi-icon">◉</span>
-            <div class="kpi-label">Computed Energy</div>
-            <div class="kpi-value" id="kpi-energy-c">{{ data_get($currentSnapshot, 'energy_computed_wh') ?? '—' }}</div>
-            <div class="kpi-unit">Wh</div>
+            <span class="kpi-icon">Σ</span>
+            <div class="kpi-label">Monthly Units</div>
+            <div class="kpi-value" id="kpi-monthly-units">{{ data_get($currentSnapshot, 'monthly_units_kwh') !== null ? number_format((float) data_get($currentSnapshot, 'monthly_units_kwh'), 3) : '—' }}</div>
+            <div class="kpi-unit">kWh</div>
         </div>
 
+        {{-- PZEM hardware energy counter, shown in kWh (units). Stored in Wh; the
+             ÷1000 conversion is presentation-only — charts/history stay in Wh. --}}
         <div class="kpi kpi--energy-p">
             <span class="kpi-icon">◎</span>
             <div class="kpi-label">PZEM Energy</div>
-            <div class="kpi-value" id="kpi-energy-p">{{ data_get($currentSnapshot, 'energy_pzem_wh') ?? '—' }}</div>
-            <div class="kpi-unit">Wh</div>
+            <div class="kpi-value" id="kpi-energy-p">{{ data_get($currentSnapshot, 'energy_pzem_wh') !== null ? number_format((float) data_get($currentSnapshot, 'energy_pzem_wh') / 1000, 3) : '—' }}</div>
+            <div class="kpi-unit">kWh</div>
         </div>
 
         <div class="kpi kpi--freq">
@@ -1365,6 +1370,9 @@ function makeSnapshotFromReading(reading, recordedAt = null) {
         power: reading.power ?? null,
         energy_computed_wh: reading.energy_computed_wh ?? null,
         energy_pzem_wh: reading.energy_pzem_wh ?? null,
+        // Per-month rollup; usually absent on a single reading and filled in by
+        // normalizeRealtimeSnapshot() / the /status snapshot. Defaults to null.
+        monthly_units_kwh: reading.monthly_units_kwh ?? null,
         frequency: reading.frequency ?? null,
         pf: reading.pf ?? null,
         recorded_at: recordedAt ?? reading.created_at ?? reading.received_at ?? null,
@@ -1784,6 +1792,20 @@ function updateCharts(readings, range) {
  * not the currently selected chart/table range.
  * ═══════════════════════════════════════════════════════════════════════ */
 
+/** Format a watt-hour counter as kWh (3 dp), or — when absent. */
+function whToKwh(wh) {
+    if (wh === null || wh === undefined || wh === '') return '—';
+    const n = Number(wh);
+    return Number.isFinite(n) ? (n / 1000).toFixed(3) : '—';
+}
+
+/** Format an already-kWh value (3 dp), or — when absent. */
+function formatKwh(kwh) {
+    if (kwh === null || kwh === undefined || kwh === '') return '—';
+    const n = Number(kwh);
+    return Number.isFinite(n) ? n.toFixed(3) : '—';
+}
+
 /**
  * Updates the 8 live KPI cards with the current snapshot values.
  */
@@ -1791,13 +1813,13 @@ function updateKPIs() {
     const snapshot = currentSnapshot;
     const timestampParts = formatTimestampParts(snapshot?.recorded_at);
 
-    document.getElementById('kpi-voltage').textContent  = snapshot?.voltage            ?? '—';
-    document.getElementById('kpi-current').textContent  = snapshot?.current            ?? '—';
-    document.getElementById('kpi-power').textContent    = snapshot?.power              ?? '—';
-    document.getElementById('kpi-energy-c').textContent = snapshot?.energy_computed_wh ?? '—';
-    document.getElementById('kpi-energy-p').textContent = snapshot?.energy_pzem_wh     ?? '—';
-    document.getElementById('kpi-freq').textContent     = snapshot?.frequency          ?? '—';
-    document.getElementById('kpi-pf').textContent       = snapshot?.pf                 ?? '—';
+    document.getElementById('kpi-voltage').textContent       = snapshot?.voltage   ?? '—';
+    document.getElementById('kpi-current').textContent       = snapshot?.current   ?? '—';
+    document.getElementById('kpi-power').textContent         = snapshot?.power     ?? '—';
+    document.getElementById('kpi-monthly-units').textContent = formatKwh(snapshot?.monthly_units_kwh);
+    document.getElementById('kpi-energy-p').textContent      = whToKwh(snapshot?.energy_pzem_wh);
+    document.getElementById('kpi-freq').textContent          = snapshot?.frequency ?? '—';
+    document.getElementById('kpi-pf').textContent            = snapshot?.pf        ?? '—';
     document.getElementById('kpi-ts').innerHTML =
         `${timestampParts.date}<br><span style="font-size:19px">${timestampParts.time}</span>`;
 }
@@ -1900,10 +1922,18 @@ function normalizeRealtimeSnapshot(eventPayload) {
         return null;
     }
 
-    return makeSnapshotFromReading(
+    const snapshot = makeSnapshotFromReading(
         eventPayload.reading,
         eventPayload.last_seen_at ?? eventPayload.reading.received_at ?? eventPayload.reading.created_at ?? null,
     );
+
+    if (snapshot) {
+        // Monthly units rides at the top level of the broadcast (it is a
+        // per-month rollup, not a property of this single reading).
+        snapshot.monthly_units_kwh = eventPayload.monthly_units_kwh ?? null;
+    }
+
+    return snapshot;
 }
 
 /**

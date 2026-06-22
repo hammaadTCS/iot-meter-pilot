@@ -4,6 +4,7 @@ namespace App\Services\Meters;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\MeterMonthlyConsumption;
 use App\Models\MeterReading;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -101,7 +102,7 @@ class MeterPayloadProcessor
 
         $hadActiveIssue = $device->hasActiveIssue();
 
-        [$reading, $latestStateWasUpdated] = DB::transaction(function () use (
+        [$reading, $latestStateWasUpdated, $monthlyUnitsKwh] = DB::transaction(function () use (
             $device,
             $receivedAt,
             $validation,
@@ -144,17 +145,44 @@ class MeterPayloadProcessor
                 ->first();
 
             $latestStateWasUpdated = $this->shouldPromoteToLatestState($latestState, $validation->ts);
+            $monthlyUnitsKwh = null;
 
             if ($latestStateWasUpdated) {
+                /*
+                 * Fold this reading into the month's consumption aggregate BEFORE
+                 * caching the latest state, so the cached `monthly_units_kwh`
+                 * already reflects this very reading. Only forward-moving
+                 * (promoted) readings reach this branch, and only those carrying a
+                 * PZEM energy value contribute — see updateMonthlyConsumption().
+                 */
+                $energyPzemWh = $validation->measurements['energy_pzem_wh'] ?? null;
+
+                if ($energyPzemWh !== null) {
+                    $monthlyUnitsKwh = $this->updateMonthlyConsumption(
+                        $device,
+                        (int) $energyPzemWh,
+                        $receivedAt,
+                        (int) $reading->id,
+                    );
+                }
+
+                $latestStateAttributes = array_merge(
+                    $validation->measurements,
+                    [
+                        'ts' => $validation->ts,
+                        'received_at' => $receivedAt,
+                    ],
+                );
+
+                // Only refresh the cached units when we actually recomputed them;
+                // a promoted reading without energy must not wipe a good value.
+                if ($monthlyUnitsKwh !== null) {
+                    $latestStateAttributes['monthly_units_kwh'] = $monthlyUnitsKwh;
+                }
+
                 LatestMeterState::updateOrCreate(
                     ['device_id' => $device->id],
-                    array_merge(
-                        $validation->measurements,
-                        [
-                            'ts' => $validation->ts,
-                            'received_at' => $receivedAt,
-                        ],
-                    ),
+                    $latestStateAttributes,
                 );
             } else {
                 Log::notice('Out-of-order MQTT reading stored but not promoted to latest state', [
@@ -181,13 +209,14 @@ class MeterPayloadProcessor
                 ],
             );
 
-            return [$reading->fresh(), $latestStateWasUpdated];
+            return [$reading->fresh(), $latestStateWasUpdated, $monthlyUnitsKwh];
         });
 
         return MeterProcessingResult::stored(
             $device->fresh(),
             $reading,
             $latestStateWasUpdated,
+            $monthlyUnitsKwh,
         );
     }
 
@@ -203,6 +232,73 @@ class MeterPayloadProcessor
         }
 
         return $incomingTs >= (int) $latestState->ts;
+    }
+
+    /**
+     * Fold one promoted reading into its calendar month's consumption aggregate
+     * and return the resulting kWh figure (so it can be cached on the latest
+     * state and broadcast to the dashboard).
+     *
+     * Runs inside the ingestion transaction and is called only for forward-moving
+     * readings that carry a PZEM energy value. The PZEM counter is cumulative, so
+     * a month's units are the rise of the counter across that month:
+     *
+     *   - First reading of a month → continue from the previous month's final
+     *     reading (the baseline), so months chain seamlessly. With no prior
+     *     month, this reading becomes the baseline and the month starts at zero.
+     *     Opening a new month also finalises the previous one for reporting.
+     *   - Subsequent readings → advance `last_energy_wh`. If the counter is seen
+     *     to drop (PZEM/device reset), the pre-reset total is banked into
+     *     `rollover_wh` so consumption never goes backwards.
+     *
+     * Period equality uses whereDate() so it behaves identically whether the
+     * `date` column stores "Y-m-d" (MySQL) or "Y-m-d 00:00:00" (SQLite tests).
+     */
+    protected function updateMonthlyConsumption(
+        Device $device,
+        int $energyWh,
+        Carbon $receivedAt,
+        int $readingId,
+    ): float {
+        $periodStart = $receivedAt->copy()->startOfMonth()->toDateString();
+
+        $row = MeterMonthlyConsumption::where('device_id', $device->id)
+            ->whereDate('period_start', $periodStart)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $row) {
+            $previous = MeterMonthlyConsumption::where('device_id', $device->id)
+                ->whereDate('period_start', '<', $periodStart)
+                ->orderByDesc('period_start')
+                ->first();
+
+            $baseline = $previous?->last_energy_wh ?? $energyWh;
+
+            if ($previous && $previous->finalized_at === null) {
+                $previous->forceFill(['finalized_at' => $receivedAt])->save();
+            }
+
+            $row = new MeterMonthlyConsumption;
+            $row->device_id = $device->id;
+            $row->period_start = $periodStart;
+            $row->baseline_energy_wh = $baseline;
+            $row->last_energy_wh = $energyWh;
+            $row->rollover_wh = 0;
+        } else {
+            if ($energyWh < (int) $row->last_energy_wh) {
+                $row->rollover_wh = (int) $row->rollover_wh + (int) $row->last_energy_wh;
+            }
+
+            $row->last_energy_wh = $energyWh;
+        }
+
+        $row->last_reading_id = $readingId;
+        $row->last_reading_at = $receivedAt;
+        $row->recomputeUnits();
+        $row->save();
+
+        return (float) $row->units_kwh;
     }
 
     /**

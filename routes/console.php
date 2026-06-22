@@ -15,3 +15,9 @@ Schedule::command('meters:scan-health')
 Schedule::command('meters:prune-ingestion-events --days=30')
     ->daily()
     ->withoutOverlapping();
+
+// Safety net: freeze monthly consumption rows for months that have ended but
+// whose device went silent before the next month's first reading closed them.
+Schedule::command('meters:close-month')
+    ->dailyAt('00:15')
+    ->withoutOverlapping();

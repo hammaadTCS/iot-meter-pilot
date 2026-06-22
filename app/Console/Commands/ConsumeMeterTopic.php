@@ -126,7 +126,12 @@ class ConsumeMeterTopic extends Command
                                 }
 
                                 try {
-                                    event(new MeterReadingUpdated($device->fresh(), $reading, $result->latestStateUpdated));
+                                    event(new MeterReadingUpdated(
+                                        $device->fresh(),
+                                        $reading,
+                                        $result->latestStateUpdated,
+                                        $result->monthlyUnitsKwh,
+                                    ));
                                 } catch (Throwable $e) {
                                     Log::warning('MQTT reading stored but broadcast failed', [
                                         'device_id' => $device->id,

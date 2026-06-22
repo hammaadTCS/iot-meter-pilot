@@ -20,6 +20,10 @@ class MeterReadingUpdated implements ShouldBroadcastNow
         public Device $device,
         public MeterReading $reading,
         public bool $latestStateUpdated = true,
+        // Current-month consumption (kWh) after this reading, or null when the
+        // reading did not change the monthly aggregate. Optional + last so all
+        // existing 2-/3-argument call sites remain valid.
+        public ?float $monthlyUnitsKwh = null,
     ) {}
 
     /**
@@ -52,6 +56,10 @@ class MeterReadingUpdated implements ShouldBroadcastNow
             'device_name' => $this->device->name,
             'last_seen_at' => $this->device->last_seen_at?->toIso8601String(),
             'latest_state_updated' => $this->latestStateUpdated,
+            // Top-level (not inside `reading`) because it is a per-month rollup,
+            // not a property of this single sample. The dashboard reads it to
+            // refresh the "Monthly Units" KPI card live.
+            'monthly_units_kwh' => $this->monthlyUnitsKwh,
             'reading' => [
                 'id' => $this->reading->id,
                 'ts' => $this->reading->ts,
