@@ -62,7 +62,10 @@ class UserManagementController extends Controller
 
     public function show(User $user): View
     {
-        $user->load('devices');
+        // Eager-load each device's latest state so the device cards can render
+        // their live Voltage / Power / Monthly Units metrics without an N+1
+        // query per card (see resources/views/components/device-card.blade.php).
+        $user->load('devices.latestState');
         return view('users.show', compact('user'));
     }
 

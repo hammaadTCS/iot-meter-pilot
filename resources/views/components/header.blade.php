@@ -1,5 +1,43 @@
 @props(['breadcrumbs' => [], 'actions' => null])
 
+@php
+// ── Placeholder notifications (FRONT-END ONLY) ───────────────────────────────
+// Static sample data so the bell + popup can be designed and reviewed ahead of
+// the real alerts feature. There is intentionally NO backend wiring here yet.
+// When implementing for real, replace this array with data sourced from
+// MeterAlertEvent (scoped to the authenticated user's devices) and derive the
+// unread count from a "read_at"-style column instead of count().
+$notifications = [
+    [
+        'type'    => 'warning',
+        'title'   => 'High voltage detected',
+        'message' => 'Meter “Main Feeder” reported 248 V, above the safe threshold.',
+        'time'    => '2 min ago',
+    ],
+    [
+        'type'    => 'info',
+        'title'   => 'Meter back online',
+        'message' => 'Telemetry resumed for “Workshop Sub-Meter”.',
+        'time'    => '1 hour ago',
+    ],
+    [
+        'type'    => 'success',
+        'title'   => 'Monthly report ready',
+        'message' => 'Your May consumption summary is now available.',
+        'time'    => 'Yesterday',
+    ],
+];
+
+$unreadCount = count($notifications);
+
+// Per-severity icon accent, aligned with the iot-* token palette.
+$notificationAccent = [
+    'warning' => 'text-iot-amber',
+    'info'    => 'text-iot-accent',
+    'success' => 'text-iot-green',
+];
+@endphp
+
 <header class="flex-shrink-0 flex items-center justify-between h-16 px-4 sm:px-6
                bg-iot-surface border-b border-iot-border z-10">
 
@@ -38,6 +76,77 @@
         @if($actions)
             {{ $actions }}
         @endif
+
+        {{-- Notifications (FRONT-END ONLY — no backend logic yet).
+             Reuses the shared <x-dropdown> (Alpine-driven open/close + click-outside)
+             with a wider panel and custom content classes so the list clips cleanly
+             to the rounded corners. --}}
+        <x-dropdown align="right" width="w-80"
+            contentClasses="bg-iot-surface border border-iot-border rounded-xl shadow-2xl shadow-black/50 overflow-hidden">
+            <x-slot name="trigger">
+                <button type="button"
+                        class="relative flex items-center justify-center w-9 h-9 rounded-lg
+                               text-iot-muted hover:text-white hover:bg-iot-surface2 transition-colors"
+                        aria-label="Notifications">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                              d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    {{-- Unread indicator (pinging dot) --}}
+                    @if($unreadCount > 0)
+                        <span class="absolute top-1.5 right-1.5 flex">
+                            <span class="absolute inline-flex w-2 h-2 rounded-full bg-iot-red opacity-75 animate-ping"></span>
+                            <span class="relative inline-flex w-2 h-2 rounded-full bg-iot-red"></span>
+                        </span>
+                    @endif
+                </button>
+            </x-slot>
+            <x-slot name="content">
+                {{-- Panel header --}}
+                <div class="flex items-center justify-between px-4 py-3 border-b border-iot-border">
+                    <p class="text-sm font-medium text-white">Notifications</p>
+                    @if($unreadCount > 0)
+                        <span class="font-mono text-[10px] uppercase tracking-wider text-iot-accent
+                                     bg-iot-accent/10 border border-iot-accent/20 px-2 py-0.5 rounded-full">
+                            {{ $unreadCount }} new
+                        </span>
+                    @endif
+                </div>
+
+                {{-- Notification list (scrolls if it overflows) --}}
+                <div class="max-h-80 overflow-y-auto">
+                    @forelse($notifications as $note)
+                        <div class="flex items-start gap-3 px-4 py-3 border-b border-iot-border/60
+                                    hover:bg-iot-surface2/60 transition-colors cursor-default">
+                            <span class="mt-0.5 flex-shrink-0 {{ $notificationAccent[$note['type']] ?? 'text-iot-muted' }}">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                          d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                                </svg>
+                            </span>
+                            <div class="min-w-0">
+                                <p class="text-sm text-white truncate">{{ $note['title'] }}</p>
+                                <p class="text-xs text-iot-muted mt-0.5">{{ $note['message'] }}</p>
+                                <p class="text-[10px] text-iot-muted/70 mt-1 font-mono">{{ $note['time'] }}</p>
+                            </div>
+                        </div>
+                    @empty
+                        <div class="px-4 py-8 text-center text-sm text-iot-muted">
+                            You're all caught up.
+                        </div>
+                    @endforelse
+                </div>
+
+                {{-- Panel footer --}}
+                <div class="px-4 py-2.5 border-t border-iot-border">
+                    <button type="button"
+                            class="w-full text-center text-xs font-medium text-iot-accent
+                                   hover:text-white transition-colors">
+                        View all notifications
+                    </button>
+                </div>
+            </x-slot>
+        </x-dropdown>
 
         {{-- User dropdown --}}
         <x-dropdown align="right" width="48">

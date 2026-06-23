@@ -589,6 +589,24 @@
         /* Fixed height so charts don't collapse or grow uncontrollably */
         .chart-wrap { position: relative; height: 220px; }
 
+        /* Monthly-units panel: a horizontal bar per calendar month needs more
+           vertical room than the 220px time-series charts. Sits on its own row,
+           full-width, directly under the KPI cards. */
+        .chart-wrap--monthly { height: 340px; }
+        .chart-monthly-panel { margin-bottom: 28px; }
+
+        /* Shown in place of the chart when a meter has no monthly rollups yet
+           (e.g. a brand-new device that has not crossed an ingestion cycle). */
+        .chart-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 120px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--muted);
+        }
+
         /* ─────────────────────────────────────────────────────────────
          * READINGS TABLE
          * ───────────────────────────────────────────────────────────── */
@@ -893,6 +911,25 @@
     </div>
 
     {{-- ══════════════════════════════════════════════════════════
+         MONTHLY UNITS PANEL
+         Full-width horizontal bar chart of consumption (kWh) per calendar
+         month. Data is server-rendered from $monthlyConsumption (last 12
+         months, newest first) and bootstrapped into MONTHLY_DATA below.
+         The current month is the top bar and is highlighted in the accent
+         colour; it updates live via updateKPIs() as new readings arrive.
+    ══════════════════════════════════════════════════════════ --}}
+    <div class="chart-card chart-wide chart-monthly-panel">
+        <div class="chart-title">Σ Monthly Consumption — Units (kWh)</div>
+        @if($monthlyConsumption->isEmpty())
+            <div class="chart-empty">No monthly consumption recorded yet.</div>
+        @else
+            <div class="chart-wrap chart-wrap--monthly">
+                <canvas id="chartMonthly"></canvas>
+            </div>
+        @endif
+    </div>
+
+    {{-- ══════════════════════════════════════════════════════════
          CONTROLS BAR
          Range buttons on the left, "N new readings" badge on the right
     ══════════════════════════════════════════════════════════ --}}
@@ -1065,6 +1102,14 @@ const INITIAL_DEVICE_HEALTH       = @json($deviceHealth);
 const INITIAL_DEVICE_AVAILABILITY = @json($deviceAvailability);
 const INITIAL_DEVICE_ISSUE        = @json($deviceIssue);
 const INITIAL_CURRENT_SNAPSHOT    = @json($currentSnapshot);
+
+/**
+ * Monthly consumption rollups for the "Monthly Consumption" panel.
+ * Newest month first, as queried by DeviceDashboardController::showMeter.
+ * Each entry: { period_start: 'YYYY-MM-DD', units_kwh: number|string }.
+ * Empty when the meter has no rollups yet (panel renders an empty state instead).
+ */
+const MONTHLY_DATA = @json($monthlyConsumption);
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1242,6 +1287,66 @@ const chartPF = new Chart(document.getElementById('chartPF'), {
         },
     },
 });
+
+/* --- Chart 6: Monthly Consumption (horizontal bars) ----------------- */
+
+/**
+ * Format a 'YYYY-MM-DD' period-start date into a compact "Mon YYYY" label
+ * (e.g. "Jun 2026") for the monthly chart's category axis. Parsed as UTC to
+ * avoid the day rolling back a month in negative-offset timezones.
+ *
+ * @param {string} periodStart  — first day of the month, ISO date
+ * @returns {string}
+ */
+function formatMonthLabel(periodStart) {
+    const d = new Date(`${periodStart}T00:00:00Z`);
+    return Number.isNaN(d.getTime())
+        ? String(periodStart)
+        : d.toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+}
+
+/* ISO 'YYYY-MM-01' for the current calendar month — identifies which bar to
+   refresh live. MONTHLY_DATA is newest-first, so the current month, when
+   present, is always the FIRST entry (index 0). */
+const CURRENT_PERIOD_START = (() => {
+    const now = new Date();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    return `${now.getFullYear()}-${mm}-01`;
+})();
+
+/* Only build the chart when the panel rendered a canvas (skipped on the
+   empty state). MONTHLY_DATA is already newest-first; Chart.js draws index 0
+   at the top of a horizontal bar chart, so this puts the most recent month at
+   the top with no reversing — and keeps the current month at a stable index 0
+   for the live update in updateKPIs(). */
+const monthlyCanvas = document.getElementById('chartMonthly');
+const monthlyRows   = Array.isArray(MONTHLY_DATA) ? MONTHLY_DATA.slice() : [];
+
+const chartMonthly = monthlyCanvas ? new Chart(monthlyCanvas, {
+    type: 'bar',
+    data: {
+        labels: monthlyRows.map((row) => formatMonthLabel(row.period_start)),
+        datasets: [{
+            label:           'Units (kWh)',
+            data:            monthlyRows.map((row) => Number(row.units_kwh) || 0),
+            // Current month highlighted in cyan; prior (settled) months in purple.
+            backgroundColor: monthlyRows.map((row) =>
+                row.period_start === CURRENT_PERIOD_START ? '#00e5ff' : 'rgba(124,58,237,.55)'),
+            borderColor:     monthlyRows.map((row) =>
+                row.period_start === CURRENT_PERIOD_START ? '#00e5ff' : '#7c3aed'),
+            borderWidth:     1,
+            borderRadius:    4,
+        }],
+    },
+    options: {
+        ...BASE_OPTS,
+        indexAxis: 'y',   // horizontal bars
+        scales: {
+            x: { beginAtZero: true, grid: { color: 'rgba(255,255,255,.04)' }, ticks: { color: '#475569' } },
+            y: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+        },
+    },
+}) : null;
 
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -1807,6 +1912,28 @@ function formatKwh(kwh) {
 }
 
 /**
+ * Keep the current-month bar on the Monthly Consumption chart in sync with the
+ * live snapshot. The current month, when present, is always the first entry of
+ * MONTHLY_DATA (newest-first) → dataset index 0. If this month has no rollup row
+ * yet, the top bar belongs to an earlier month and is deliberately left untouched.
+ *
+ * @param {number|string|null|undefined} monthlyUnitsKwh
+ */
+function updateMonthlyChartCurrent(monthlyUnitsKwh) {
+    if (!chartMonthly || monthlyRows[0]?.period_start !== CURRENT_PERIOD_START) {
+        return;
+    }
+
+    const value = Number(monthlyUnitsKwh);
+    if (!Number.isFinite(value)) {
+        return;
+    }
+
+    chartMonthly.data.datasets[0].data[0] = value;
+    chartMonthly.update('none');   // skip animation — this is a small live tweak
+}
+
+/**
  * Updates the 8 live KPI cards with the current snapshot values.
  */
 function updateKPIs() {
@@ -1818,6 +1945,9 @@ function updateKPIs() {
     document.getElementById('kpi-power').textContent         = snapshot?.power     ?? '—';
     document.getElementById('kpi-monthly-units').textContent = formatKwh(snapshot?.monthly_units_kwh);
     document.getElementById('kpi-energy-p').textContent      = whToKwh(snapshot?.energy_pzem_wh);
+
+    // Mirror the live monthly figure onto the current-month bar of the panel.
+    updateMonthlyChartCurrent(snapshot?.monthly_units_kwh);
     document.getElementById('kpi-freq').textContent          = snapshot?.frequency ?? '—';
     document.getElementById('kpi-pf').textContent            = snapshot?.pf        ?? '—';
     document.getElementById('kpi-ts').innerHTML =

@@ -27,6 +27,25 @@ $dotColor = match($healthStatus) {
 };
 
 $hasDashboard = $device->type === 'meter';
+
+// Live metrics row — only meters carry a latest-state snapshot. Reading the
+// already eager-loaded relation (see DashboardController@index and
+// UserManagementController@show) keeps this N+1-free. `$metricsState` stays
+// null for non-meter devices and meters that have not reported yet, in which
+// case the card falls back to its identity-only layout.
+$metricsState = $device->type === 'meter' ? $device->latestState : null;
+
+// Pre-format the three values once so the markup stays readable. A null
+// reading (column never populated) renders as an em dash rather than "0".
+$fmtVoltage = $metricsState && $metricsState->voltage !== null
+    ? number_format((float) $metricsState->voltage, 1)
+    : '—';
+$fmtPower = $metricsState && $metricsState->power !== null
+    ? number_format((float) $metricsState->power, 0)
+    : '—';
+$fmtMonthlyUnits = $metricsState && $metricsState->monthly_units_kwh !== null
+    ? number_format((float) $metricsState->monthly_units_kwh, 3)
+    : '—';
 @endphp
 
 <div class="bg-iot-surface border border-iot-border rounded-2xl p-5 flex flex-col gap-4
@@ -65,6 +84,32 @@ $hasDashboard = $device->type === 'meter';
             </p>
         @endif
     </div>
+
+    {{-- Live metrics — meters only. A quick glance at Voltage / Power / this
+         month's units so users don't need to open the live dashboard for the
+         basics. Thin dividers are drawn with `gap-px` over a bordered grid. --}}
+    @if($metricsState)
+        <div class="grid grid-cols-3 gap-px bg-iot-border border border-iot-border rounded-xl overflow-hidden">
+            <div class="bg-iot-surface2/40 px-2 py-2.5 text-center">
+                <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted">Voltage</p>
+                <p class="font-mono text-sm font-semibold text-white mt-1 truncate">
+                    {{ $fmtVoltage }}<span class="text-iot-muted text-[10px] ml-0.5">V</span>
+                </p>
+            </div>
+            <div class="bg-iot-surface2/40 px-2 py-2.5 text-center">
+                <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted">Power</p>
+                <p class="font-mono text-sm font-semibold text-white mt-1 truncate">
+                    {{ $fmtPower }}<span class="text-iot-muted text-[10px] ml-0.5">W</span>
+                </p>
+            </div>
+            <div class="bg-iot-surface2/40 px-2 py-2.5 text-center">
+                <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted">Month</p>
+                <p class="font-mono text-sm font-semibold text-iot-accent mt-1 truncate">
+                    {{ $fmtMonthlyUnits }}<span class="text-iot-muted text-[10px] ml-0.5">kWh</span>
+                </p>
+            </div>
+        </div>
+    @endif
 
     <div class="flex items-center justify-between pt-3 border-t border-iot-border">
         <div class="text-xs text-iot-muted">

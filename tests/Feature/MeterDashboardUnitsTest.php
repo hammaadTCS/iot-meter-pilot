@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\MeterMonthlyConsumption;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
@@ -63,5 +64,65 @@ class MeterDashboardUnitsTest extends TestCase
             ->assertSee('id="kpi-monthly-units"', false)
             ->assertSee('2.921')                // monthly units value
             ->assertSee('656.581');             // PZEM Wh rendered as kWh
+    }
+
+    public function test_monthly_consumption_panel_renders_chart_with_history(): void
+    {
+        $meter = $this->createActiveMeter('meter-monthly', 'meters/monthly');
+
+        // Two settled months of history; the chart is rendered client-side from
+        // the bootstrapped MONTHLY_DATA, so we assert the panel scaffolding plus
+        // the units figures that get serialised into that payload.
+        MeterMonthlyConsumption::create([
+            'device_id'    => $meter->id,
+            'period_start' => '2026-05-01',
+            'units_kwh'    => 98.100,
+        ]);
+        MeterMonthlyConsumption::create([
+            'device_id'    => $meter->id,
+            'period_start' => '2026-06-01',
+            'units_kwh'    => 12.500,
+        ]);
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        // Units assertions use the trailing-zero-free substring so they hold on
+        // both SQLite (REAL → "12.5") and MySQL (decimal → "12.500").
+        $response->assertOk()
+            ->assertSee('Monthly Consumption')            // panel title
+            ->assertSee('id="chartMonthly"', false)       // canvas present (has data)
+            ->assertDontSee('No monthly consumption recorded yet.')
+            ->assertSee('2026-06-01')                     // current month present in MONTHLY_DATA
+            ->assertSee('2026-05-01')                     // prior month present in MONTHLY_DATA
+            ->assertSee('12.5')                           // current month units
+            ->assertSee('98.1');                          // prior month units
+    }
+
+    public function test_monthly_consumption_panel_shows_empty_state_without_history(): void
+    {
+        $meter = $this->createActiveMeter('meter-no-months', 'meters/no-months');
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        $response->assertOk()
+            ->assertSee('Monthly Consumption')                  // panel still rendered
+            ->assertSee('No monthly consumption recorded yet.') // empty-state copy
+            ->assertDontSee('id="chartMonthly"', false);        // canvas omitted
+    }
+
+    /**
+     * Create an active meter owned by the test user. Kept small so each test
+     * declares only the data it actually asserts on.
+     */
+    private function createActiveMeter(string $code, string $topic): Device
+    {
+        return Device::create([
+            'code'       => $code,
+            'name'       => 'Meter '.$code,
+            'type'       => 'meter',
+            'mqtt_topic' => $topic,
+            'is_active'  => true,
+            'user_id'    => $this->user->id,
+        ]);
     }
 }

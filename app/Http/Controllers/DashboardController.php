@@ -28,7 +28,12 @@ class DashboardController extends Controller
             ];
         }
 
-        $query = Device::with('user')->orderByDesc('last_seen_at');
+        // Eager-load the owner (for the admin view) and the single-row latest
+        // state so the device cards can render live Voltage / Power / Monthly
+        // Units without an N+1 query per card. `latestState` only exists for
+        // meters; for other device types the relation is simply null and the
+        // card falls back to its identity-only layout.
+        $query = Device::with(['user', 'latestState'])->orderByDesc('last_seen_at');
         if (!$user->isAdminOrAbove()) {
             $query->where('user_id', $user->id);
         }
