@@ -3,14 +3,20 @@
 namespace App\Http\Controllers;
 
 use App\Models\Device;
+use App\Models\MeterDailyConsumption;
+use App\Models\MeterMonthlyConsumption;
+use App\Services\Meters\RangeConsumption;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DeviceReadingController extends Controller
 {
+    use AuthorizesRequests;
+
     /** Readings table. */
     private const TABLE = 'meter_readings';
 
@@ -166,10 +172,7 @@ class DeviceReadingController extends Controller
      */
     public function chart(Request $request, Device $device): JsonResponse
     {
-        $user = Auth::user();
-        if (! $user->isAdminOrAbove() && $device->user_id !== $user->id) {
-            abort(403);
-        }
+        $this->authorize('view', $device);
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -236,10 +239,7 @@ class DeviceReadingController extends Controller
      */
     public function index(Request $request, Device $device): JsonResponse
     {
-        $user = Auth::user();
-        if (! $user->isAdminOrAbove() && $device->user_id !== $user->id) {
-            abort(403);
-        }
+        $this->authorize('view', $device);
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -299,6 +299,173 @@ class DeviceReadingController extends Controller
                 'total'        => $total,
             ],
         ]);
+    }
+
+    /**
+     * Consumption endpoint — GET /api/devices/{device}/readings/consumption
+     *
+     * Returns the energy consumed ("units", kWh) within the selected window,
+     * computed by the shared RangeConsumption service — the single source of
+     * truth, so this figure reconciles with the Monthly Units KPI and the
+     * reports. Accepts the same window params as the chart/table endpoints:
+     *
+     *   ?range=1h|6h|24h|today|7d|30d|all   (preset window)
+     *   ?from=<ISO>&to=<ISO>                 (custom window)
+     */
+    public function consumption(Request $request, Device $device): JsonResponse
+    {
+        $this->authorize('view', $device);
+
+        $window = $this->resolveWindow($request);
+        if (! $window) {
+            return response()->json(['error' => 'Invalid from/to range.'], 422);
+        }
+
+        [$windowStart, $windowEnd] = $window;
+
+        $result = RangeConsumption::unitsForWindow($device->id, $windowStart, $windowEnd);
+
+        return response()->json([
+            'units_kwh'     => $result['units_kwh'],
+            'reading_count' => $result['reading_count'],
+            'from'          => $windowStart->toDateTimeString(),
+            'to'            => $windowEnd?->toDateTimeString(),
+        ]);
+    }
+
+    /**
+     * Daily consumption report — GET /api/devices/{device}/consumption/daily
+     *
+     * Returns the per-day units consumed for a calendar month plus that month's
+     * total, both read from the pre-aggregated rollups (meter_daily_consumption
+     * and meter_monthly_consumption) — never a raw-readings scan. Because the
+     * rollups chain consistently, the daily rows sum to the monthly total.
+     *
+     *   ?month=YYYY-MM    (defaults to the current month)
+     *   ?format=csv|json  (omit for a JSON object the dashboard renders)
+     */
+    public function dailyConsumption(Request $request, Device $device): StreamedResponse|JsonResponse
+    {
+        $this->authorize('view', $device);
+
+        $month = $this->resolveMonth($request);
+        if (! $month) {
+            return response()->json(['error' => 'Invalid month (expected YYYY-MM).'], 422);
+        }
+
+        $monthEnd   = $month->copy()->endOfMonth();
+        $monthLabel = $month->format('Y-m');
+
+        // Per-day units from the daily rollup (pre-aggregated, no raw scan).
+        $days = MeterDailyConsumption::query()
+            ->where('device_id', $device->id)
+            ->whereDate('period_date', '>=', $month->toDateString())
+            ->whereDate('period_date', '<=', $monthEnd->toDateString())
+            ->orderBy('period_date')
+            ->get(['period_date', 'units_kwh'])
+            ->map(fn ($r) => [
+                'date'      => $r->period_date->format('Y-m-d'),
+                'units_kwh' => (float) $r->units_kwh,
+            ])
+            ->values();
+
+        // Authoritative monthly total (matches the Monthly Units KPI). Falls back
+        // to the sum of the daily rows if the month row isn't present yet.
+        $total = MeterMonthlyConsumption::query()
+            ->where('device_id', $device->id)
+            ->whereDate('period_start', $month->toDateString())
+            ->value('units_kwh');
+        $total = $total !== null ? (float) $total : round((float) $days->sum('units_kwh'), 3);
+
+        $format = $request->query('format');
+
+        if ($format === 'csv' || $format === 'json') {
+            $filename = $this->exportFilename($device, $format, 'daily-consumption-' . $monthLabel);
+
+            if ($format === 'json') {
+                return response()->streamDownload(function () use ($days, $total, $monthLabel) {
+                    $out = fopen('php://output', 'w');
+                    fwrite($out, json_encode(['type' => 'summary', 'month' => $monthLabel, 'total_units_kwh' => $total]) . PHP_EOL);
+                    foreach ($days as $day) {
+                        fwrite($out, json_encode($day) . PHP_EOL);
+                    }
+                    fclose($out);
+                }, $filename, ['Content-Type' => 'application/x-ndjson']);
+            }
+
+            return response()->streamDownload(function () use ($days, $total, $monthLabel) {
+                $out = fopen('php://output', 'w');
+                fputcsv($out, ['date', 'units_kwh']);
+                foreach ($days as $day) {
+                    fputcsv($out, [$this->csvSafe($day['date']), $day['units_kwh']]);
+                }
+                fputcsv($out, ['TOTAL ' . $monthLabel, $total]);
+                fclose($out);
+            }, $filename, ['Content-Type' => 'text/csv']);
+        }
+
+        return response()->json([
+            'month'           => $monthLabel,
+            'total_units_kwh' => $total,
+            'days'            => $days,
+        ]);
+    }
+
+    /**
+     * Resolve the report month from the request (YYYY-MM), defaulting to the
+     * current month. Returns null for a malformed or impossible month.
+     */
+    private function resolveMonth(Request $request): ?Carbon
+    {
+        $month = $request->query('month');
+
+        if ($month === null || $month === '') {
+            return now()->startOfMonth();
+        }
+
+        if (! is_string($month) || ! preg_match('/^\d{4}-\d{2}$/', $month)) {
+            return null;
+        }
+
+        $dt = rescue(fn () => Carbon::createFromFormat('Y-m-d', $month . '-01'), report: false);
+
+        if (! $dt || $dt->format('Y-m') !== $month) {
+            return null;
+        }
+
+        return $dt->startOfMonth();
+    }
+
+    /**
+     * A safe download filename derived from the device code (sanitised to a slug
+     * so a crafted code can't inject headers or path segments).
+     */
+    private function exportFilename(Device $device, string $format, string $label): string
+    {
+        $slug = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) ($device->code ?: ''));
+        $slug = trim((string) $slug, '-');
+        if ($slug === '') {
+            $slug = 'device-' . $device->id;
+        }
+
+        $ext = $format === 'json' ? 'ndjson' : 'csv';
+
+        return "meter-{$slug}-{$label}-" . now()->format('Ymd-His') . ".{$ext}";
+    }
+
+    /**
+     * Neutralise CSV/formula injection: a cell beginning with a formula trigger
+     * is prefixed with a single quote so spreadsheet apps treat it as text.
+     */
+    private function csvSafe(?string $value): string
+    {
+        $str = (string) $value;
+
+        if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return "'" . $str;
+        }
+
+        return $str;
     }
 
     /**

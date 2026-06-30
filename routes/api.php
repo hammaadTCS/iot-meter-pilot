@@ -49,8 +49,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
     Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
 
-    // Device Readings — chart must be registered before the base readings route
-    // so Laravel doesn't try to resolve "chart" as a {device} parameter.
+    // Device Readings — the named sub-routes must be registered before the base
+    // readings route so Laravel doesn't resolve "chart"/"consumption" as a
+    // {device} parameter. Consumption is throttled (it can scan a window).
+    Route::get('/devices/{device}/readings/consumption', [DeviceReadingController::class, 'consumption'])
+        ->middleware('throttle:120,1');
+    Route::get('/devices/{device}/consumption/daily', [DeviceReadingController::class, 'dailyConsumption'])
+        ->middleware('throttle:60,1'); // per-day units + monthly total report (aggregates only)
     Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart']);
     Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index']);
     Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings']);

@@ -4,6 +4,7 @@ namespace App\Services\Meters;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\MeterDailyConsumption;
 use App\Models\MeterMonthlyConsumption;
 use App\Models\MeterReading;
 use Illuminate\Support\Carbon;
@@ -164,6 +165,21 @@ class MeterPayloadProcessor
                         $receivedAt,
                         (int) $reading->id,
                     );
+
+                    /*
+                     * Maintain the per-day aggregate in lockstep with the monthly
+                     * one — same transaction, same forward-moving + energy-present
+                     * guard. Unlike monthly, the daily figure is not cached on the
+                     * latest state (no dashboard KPI reads it directly); it exists
+                     * purely as the scalable source for arbitrary range queries
+                     * (see RangeConsumption).
+                     */
+                    $this->updateDailyConsumption(
+                        $device,
+                        (int) $energyPzemWh,
+                        $receivedAt,
+                        (int) $reading->id,
+                    );
                 }
 
                 $latestStateAttributes = array_merge(
@@ -282,6 +298,72 @@ class MeterPayloadProcessor
             $row = new MeterMonthlyConsumption;
             $row->device_id = $device->id;
             $row->period_start = $periodStart;
+            $row->baseline_energy_wh = $baseline;
+            $row->last_energy_wh = $energyWh;
+            $row->rollover_wh = 0;
+        } else {
+            if ($energyWh < (int) $row->last_energy_wh) {
+                $row->rollover_wh = (int) $row->rollover_wh + (int) $row->last_energy_wh;
+            }
+
+            $row->last_energy_wh = $energyWh;
+        }
+
+        $row->last_reading_id = $readingId;
+        $row->last_reading_at = $receivedAt;
+        $row->recomputeUnits();
+        $row->save();
+
+        return (float) $row->units_kwh;
+    }
+
+    /**
+     * Fold one promoted reading into its calendar day's consumption aggregate.
+     *
+     * The per-day counterpart of updateMonthlyConsumption(), maintained in the
+     * same ingestion transaction so daily and monthly figures stay consistent.
+     * Identical logic, one granularity down:
+     *   - First reading of a day → baseline = previous day's final reading (so
+     *     days chain seamlessly); the very first day seeds from its own reading
+     *     and starts at zero, and opening a new day finalises the previous one.
+     *   - Subsequent readings → advance last_energy_wh; a counter drop
+     *     (PZEM/device reset) banks the pre-reset total into rollover_wh.
+     *
+     * The daily aggregate is the scalable source for arbitrary range queries
+     * (RangeConsumption): any window resolves to whole-day buckets plus bounded
+     * partial-day edges instead of scanning raw history.
+     *
+     * Returns the day's units (kWh) for symmetry/testing; the caller does not
+     * cache it (no dashboard KPI reads the daily figure directly).
+     */
+    protected function updateDailyConsumption(
+        Device $device,
+        int $energyWh,
+        Carbon $receivedAt,
+        int $readingId,
+    ): float {
+        $periodDate = $receivedAt->copy()->startOfDay()->toDateString();
+
+        $row = MeterDailyConsumption::where('device_id', $device->id)
+            ->whereDate('period_date', $periodDate)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $row) {
+            $previous = MeterDailyConsumption::where('device_id', $device->id)
+                ->whereDate('period_date', '<', $periodDate)
+                ->orderByDesc('period_date')
+                ->first();
+
+            $baseline = $previous?->last_energy_wh ?? $energyWh;
+
+            if ($previous && $previous->finalized_at === null) {
+                $previous->forceFill(['finalized_at' => $receivedAt])->save();
+            }
+
+            $row = new MeterDailyConsumption;
+            $row->device_id = $device->id;
+            $row->period_date = $periodDate;
             $row->baseline_energy_wh = $baseline;
             $row->last_energy_wh = $energyWh;
             $row->rollover_wh = 0;

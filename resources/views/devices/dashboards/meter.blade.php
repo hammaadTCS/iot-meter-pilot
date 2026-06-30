@@ -595,6 +595,19 @@
         .chart-wrap--monthly { height: 340px; }
         .chart-monthly-panel { margin-bottom: 28px; }
 
+        /* Daily Breakdown report */
+        .daily-report-panel { margin-bottom: 28px; }
+        .daily-report-head { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:10px; }
+        .daily-report-controls { display:flex; align-items:center; gap:8px; }
+        .daily-report-total { font-family: var(--font-mono); font-size:13px; color: var(--muted); margin-bottom:12px; }
+        .daily-report-total span { color: var(--accent); font-weight:600; }
+        .daily-report-table-wrap { max-height:360px; overflow:auto; border:1px solid var(--border); border-radius:8px; }
+        .daily-report-table { width:100%; border-collapse:collapse; font-family: var(--font-mono); font-size:12px; }
+        .daily-report-table th { position:sticky; top:0; background: var(--surface); color: var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:10px; padding:8px 12px; text-align:left; border-bottom:1px solid var(--border); }
+        .daily-report-table td { padding:7px 12px; border-bottom:1px solid var(--border); color: var(--text); }
+        .daily-report-table tr:last-child td { border-bottom:none; }
+        .daily-report-empty { text-align:center; color: var(--muted); padding:18px; }
+
         /* Shown in place of the chart when a meter has no monthly rollups yet
            (e.g. a brand-new device that has not crossed an ingestion cycle). */
         .chart-empty {
@@ -874,6 +887,17 @@
             <div class="kpi-unit">kWh</div>
         </div>
 
+        {{-- Units (kWh) consumed within the currently selected dashboard range.
+             Computed by the shared RangeConsumption service so it reconciles with
+             the Monthly Units card. Seeded server-side for the default 1h range;
+             refreshed by JS on every range change and on the background poll. --}}
+        <div class="kpi kpi--range">
+            <span class="kpi-icon">∫</span>
+            <div class="kpi-label">Range Units <span id="kpi-range-units-label" style="opacity:.55">1H</span></div>
+            <div class="kpi-value" id="kpi-range-units">{{ data_get($rangeUnits, 'units_kwh') !== null ? number_format((float) data_get($rangeUnits, 'units_kwh'), 3) : '—' }}</div>
+            <div class="kpi-unit">kWh</div>
+        </div>
+
         {{-- PZEM hardware energy counter, shown in kWh (units). Stored in Wh; the
              ÷1000 conversion is presentation-only — charts/history stay in Wh. --}}
         <div class="kpi kpi--energy-p">
@@ -927,6 +951,45 @@
                 <canvas id="chartMonthly"></canvas>
             </div>
         @endif
+    </div>
+
+    {{-- ══════════════════════════════════════════════════════════
+         DAILY BREAKDOWN REPORT
+         Per-day units for a selected month + the monthly total, read from the
+         pre-aggregated rollups (no raw scan). The month picker re-fetches via the
+         API; the CSV button streams the same aggregates.
+    ══════════════════════════════════════════════════════════ --}}
+    <div class="chart-card chart-wide daily-report-panel">
+        <div class="daily-report-head">
+            <div class="chart-title">Daily Breakdown — Units (kWh)</div>
+            <div class="daily-report-controls">
+                <select id="dailyMonthSelect" class="range-btn">
+                    @foreach($reportMonths as $m)
+                        <option value="{{ $m['value'] }}" @selected($m['value'] === $currentMonth)>{{ $m['label'] }}</option>
+                    @endforeach
+                </select>
+                <button class="range-btn" id="dailyDownloadCsvBtn" title="Download this month's daily units as CSV">⭳ CSV</button>
+            </div>
+        </div>
+
+        <div class="daily-report-total">
+            Monthly total: <span id="dailyMonthlyTotal">{{ number_format($currentMonthTotal, 3) }}</span> kWh
+        </div>
+
+        <div class="daily-report-table-wrap">
+            <table class="daily-report-table">
+                <thead>
+                    <tr><th>Date</th><th style="text-align:right">Units (kWh)</th></tr>
+                </thead>
+                <tbody id="dailyBreakdownBody">
+                    @forelse($dailyBreakdown as $d)
+                        <tr><td>{{ $d['date'] }}</td><td style="text-align:right">{{ number_format($d['units_kwh'], 3) }}</td></tr>
+                    @empty
+                        <tr><td colspan="2" class="daily-report-empty">No daily consumption recorded for this month.</td></tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 
     {{-- ══════════════════════════════════════════════════════════
@@ -1093,6 +1156,8 @@
 const DEVICE_ID        = {{ $device->id }};
 const API_TABLE        = `/api/devices/${DEVICE_ID}/readings`;
 const API_CHART        = `/api/devices/${DEVICE_ID}/readings/chart`;
+const API_CONSUMPTION  = `/api/devices/${DEVICE_ID}/readings/consumption`;
+const API_DAILY        = `/api/devices/${DEVICE_ID}/consumption/daily`;
 const API_STATUS       = `/api/devices/${DEVICE_ID}/status`;
 const REFRESH_INTERVAL = 30;  // seconds between background polls
 const TABLE_PER_PAGE   = 100; // must match DeviceReadingController::TABLE_PER_PAGE
@@ -2322,6 +2387,76 @@ function rangeParams() {
     return `range=${activeRange}`;
 }
 
+/** Current range label for the Range Units card (e.g. "1H", "24H", "CUSTOM"). */
+function rangeLabelText() {
+    if (customRangeFrom && customRangeTo) return 'CUSTOM';
+    return String(activeRange || '').toUpperCase();
+}
+
+
+/**
+ * Fetch the consumption (units) for the currently selected range. Reuses
+ * rangeParams() so preset/custom windows are handled identically to the chart.
+ * Returns null on failure so the caller can degrade gracefully.
+ */
+async function fetchRangeUnits() {
+    try {
+        const response = await fetch(`${API_CONSUMPTION}?${rangeParams()}`, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!response.ok) return null;
+        return await response.json();
+    } catch (err) {
+        return null;
+    }
+}
+
+/** Render the Range Units card. payload null → em dash (used on initial/range load). */
+function renderRangeUnits(payload) {
+    const labelEl = document.getElementById('kpi-range-units-label');
+    if (labelEl) labelEl.textContent = rangeLabelText();
+
+    const valueEl = document.getElementById('kpi-range-units');
+    if (valueEl) valueEl.textContent = payload ? formatKwh(payload.units_kwh) : '—';
+}
+
+/**
+ * Fetch the Daily Breakdown report (per-day units + monthly total) for a month
+ * (YYYY-MM). Returns null on failure so the seeded server-render is preserved.
+ */
+async function fetchDailyBreakdown(month) {
+    try {
+        const r = await fetch(`${API_DAILY}?month=${encodeURIComponent(month)}`, {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        });
+        if (!r.ok) return null;
+        return await r.json();
+    } catch (e) {
+        return null;
+    }
+}
+
+/** Render the Daily Breakdown table + monthly total from a report payload. */
+function renderDailyBreakdown(payload) {
+    if (!payload) return;
+
+    const totalEl = document.getElementById('dailyMonthlyTotal');
+    if (totalEl) totalEl.textContent = formatKwh(payload.total_units_kwh);
+
+    const body = document.getElementById('dailyBreakdownBody');
+    if (!body) return;
+
+    const days = Array.isArray(payload.days) ? payload.days : [];
+    if (!days.length) {
+        body.innerHTML = `<tr><td colspan="2" class="daily-report-empty">No daily consumption recorded for this month.</td></tr>`;
+        return;
+    }
+
+    body.innerHTML = days.map(d =>
+        `<tr><td>${d.date}</td><td style="text-align:right">${formatKwh(d.units_kwh)}</td></tr>`
+    ).join('');
+}
+
 /**
  * Fetch chart data — up to 500 evenly-sampled rows, oldest-first.
  * The backend handles the sampling so this always returns a small payload
@@ -2391,10 +2526,11 @@ async function fullLoad(range) {
 
     try {
         // Three parallel requests — chart sample, table page 1, device status.
-        const [chartRows, { rows: tableRows, meta }, statusPayload] = await Promise.all([
+        const [chartRows, { rows: tableRows, meta }, statusPayload, rangeUnits] = await Promise.all([
             fetchChartData(),
             fetchTableData(1),
             fetchDeviceStatus(),
+            fetchRangeUnits(),
         ]);
 
         // Chart — oldest-first, ready for Chart.js.
@@ -2421,6 +2557,10 @@ async function fullLoad(range) {
         clearConnectionIssue();
         applyRuntimeStatus(statusPayload);
 
+        // Range Units KPI — reflects the just-loaded window (always render so the
+        // label updates and a failed fetch shows — rather than a stale value).
+        renderRangeUnits(rangeUnits);
+
         if (!currentSnapshot) {
             updateCurrentSnapshot(makeSnapshotFromReading(tableRows[0] ?? null));
         }
@@ -2446,10 +2586,11 @@ async function fullLoad(range) {
 async function backgroundRefresh() {
     try {
         // Parallel: delta rows for the table + refreshed chart sample + device status.
-        const [newRows, freshChart, statusPayload] = await Promise.all([
+        const [newRows, freshChart, statusPayload, rangeUnits] = await Promise.all([
             fetchNewRows(),
             fetchChartData(),
             fetchDeviceStatus(),
+            fetchRangeUnits(),
         ]);
 
         clearConnectionIssue();
@@ -2458,6 +2599,9 @@ async function backgroundRefresh() {
         // Always update the chart — the sampled set shifts as time moves forward.
         chartReadings = freshChart;
         updateCharts(chartReadings, activeRange);
+
+        // Refresh the Range Units KPI (skip on a failed fetch to avoid flicker).
+        if (rangeUnits) renderRangeUnits(rangeUnits);
 
         if (!newRows.length) return;
 
@@ -2599,6 +2743,15 @@ document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
 });
 
 // ── Custom date/time range ────────────────────────────────────────────────
+// Daily Breakdown report — month picker re-fetches; CSV button streams the aggregates.
+document.getElementById('dailyMonthSelect')?.addEventListener('change', async (e) => {
+    renderDailyBreakdown(await fetchDailyBreakdown(e.target.value));
+});
+document.getElementById('dailyDownloadCsvBtn')?.addEventListener('click', () => {
+    const sel = document.getElementById('dailyMonthSelect');
+    window.location.href = `${API_DAILY}?month=${encodeURIComponent(sel ? sel.value : '')}&format=csv`;
+});
+
 document.getElementById('applyCustomRangeBtn').addEventListener('click', async () => {
     const fromVal = document.getElementById('customFrom').value;
     const toVal   = document.getElementById('customTo').value;

@@ -7,6 +7,7 @@ use App\Models\LatestMeterState;
 use App\Models\MeterMonthlyConsumption;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use Tests\TestCase;
 
@@ -108,6 +109,29 @@ class MeterDashboardUnitsTest extends TestCase
             ->assertSee('Monthly Consumption')                  // panel still rendered
             ->assertSee('No monthly consumption recorded yet.') // empty-state copy
             ->assertDontSee('id="chartMonthly"', false);        // canvas omitted
+    }
+
+    public function test_dashboard_seeds_range_units_card_for_the_default_hour(): void
+    {
+        $meter = $this->createActiveMeter('meter-range', 'meters/range');
+
+        // Two readings within the last hour → 0.500 kWh in the default 1h seed window.
+        DB::table('meter_readings')->insert([
+            ['device_id' => $meter->id, 'ts' => 1000, 'energy_pzem_wh' => 1000, 'raw_payload' => '{}',
+             'received_at' => now()->subMinutes(40), 'created_at' => now()->subMinutes(40), 'updated_at' => now()->subMinutes(40)],
+            ['device_id' => $meter->id, 'ts' => 1100, 'energy_pzem_wh' => 1500, 'raw_payload' => '{}',
+             'received_at' => now()->subMinutes(10), 'created_at' => now()->subMinutes(10), 'updated_at' => now()->subMinutes(10)],
+        ]);
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        $response->assertOk()
+            ->assertSee('Range Units')                 // new KPI card label
+            ->assertSee('id="kpi-range-units"', false) // card present
+            ->assertSee('0.500')                       // server-seeded 1h consumption
+            ->assertSee('Daily Breakdown')             // monthly report panel
+            ->assertSee('id="dailyMonthSelect"', false)
+            ->assertSee('Monthly total:');
     }
 
     /**

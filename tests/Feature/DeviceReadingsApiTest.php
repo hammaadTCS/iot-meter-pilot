@@ -65,13 +65,15 @@ class DeviceReadingsApiTest extends TestCase
 
         $response->assertOk();
 
-        $rows = $response->json();
+        // The readings index returns the paginated { data, meta } envelope,
+        // newest-first, so page 1 leads with the most recent in-window reading.
+        $rows = $response->json('data');
 
         $this->assertCount(2, $rows);
-        $this->assertSame($legacyReadingId, $rows[0]['id']);
-        $this->assertSame('2026-04-21 11:35:00', $rows[0]['created_at']);
-        $this->assertSame($recentReceiveId, $rows[1]['id']);
-        $this->assertSame('2026-04-21 11:40:00', $rows[1]['created_at']);
+        $this->assertSame($recentReceiveId, $rows[0]['id']);
+        $this->assertSame('2026-04-21 11:40:00', $rows[0]['created_at']);
+        $this->assertSame($legacyReadingId, $rows[1]['id']);
+        $this->assertSame('2026-04-21 11:35:00', $rows[1]['created_at']);
     }
 
     public function test_readings_endpoint_incremental_cursor_uses_receive_time_not_only_row_id(): void

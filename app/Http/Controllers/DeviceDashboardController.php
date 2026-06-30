@@ -3,6 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\Models\Device;
+use App\Models\MeterDailyConsumption;
+use App\Services\Meters\RangeConsumption;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
@@ -65,8 +68,47 @@ class DeviceDashboardController extends Controller
                 'units_kwh'    => (float) $row->units_kwh,
             ]);
 
+        // Seed the Range Units KPI for the dashboard's default range (1h) so the
+        // card renders populated on first paint. Reuses the same RangeConsumption
+        // service the client polls, so the seed reconciles with the first fetch.
+        $rangeUnits = RangeConsumption::unitsForWindow($device->id, now()->subHour(), null);
+
+        // Daily Breakdown report — seed the current month for first paint; the
+        // client re-fetches when another month is picked. Reads the pre-aggregated
+        // daily rollup (≤31 rows), never raw history.
+        $currentMonth = now()->startOfMonth();
+        $dailyBreakdown = MeterDailyConsumption::where('device_id', $device->id)
+            ->whereDate('period_date', '>=', $currentMonth->toDateString())
+            ->whereDate('period_date', '<=', $currentMonth->copy()->endOfMonth()->toDateString())
+            ->orderBy('period_date')
+            ->get(['period_date', 'units_kwh'])
+            ->map(fn ($r) => ['date' => $r->period_date->format('Y-m-d'), 'units_kwh' => (float) $r->units_kwh])
+            ->values();
+
+        // Month options for the picker (newest first); always include the current month.
+        $reportMonths = $monthlyConsumption
+            ->pluck('period_start')
+            ->map(fn ($d) => Carbon::parse($d)->format('Y-m'));
+        if (! $reportMonths->contains($currentMonth->format('Y-m'))) {
+            $reportMonths->prepend($currentMonth->format('Y-m'));
+        }
+        $reportMonths = $reportMonths->unique()->values()->map(fn ($ym) => [
+            'value' => $ym,
+            'label' => Carbon::createFromFormat('Y-m', $ym)->format('F Y'),
+        ]);
+
+        // Current month total (matches the Monthly Units KPI).
+        $currentMonthTotal = (float) ($monthlyConsumption
+            ->firstWhere('period_start', $currentMonth->toDateString())['units_kwh']
+            ?? $dailyBreakdown->sum('units_kwh'));
+
         return view('devices.dashboards.meter', [
             'device'             => $device,
+            'rangeUnits'         => $rangeUnits,
+            'dailyBreakdown'     => $dailyBreakdown,
+            'reportMonths'       => $reportMonths,
+            'currentMonth'       => $currentMonth->format('Y-m'),
+            'currentMonthTotal'  => $currentMonthTotal,
             'allDevices'         => collect([]), // picker removed; kept for API compat
             'currentSnapshot'    => $device->currentSnapshot(),
             'deviceAvailability' => $device->availabilitySnapshot(),
