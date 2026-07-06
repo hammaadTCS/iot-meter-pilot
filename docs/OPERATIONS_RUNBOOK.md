@@ -29,15 +29,23 @@ php artisan queue:work
 php artisan schedule:work
 ```
 
-`queue:work` is included for future queued jobs/broadcasting. It is safe to run even when the current workload is light.
 
-`schedule:work` runs scheduled Laravel tasks. The project schedules:
+`schedule:work` runs scheduled Laravel tasks (all guarded by `withoutOverlapping()`).
+The current schedule (`php artisan schedule:list` is authoritative):
 
-```bash
-php artisan meters:scan-health
+```text
+every minute   meters:scan-health              open/resolve offline health alerts
+every minute   alerts:dispatch-digests         flush the per-user notification digests
+every minute   alerts:scan-thresholds          voltage/power/pf threshold alerts (debounced)
+hourly         alerts:scan-consumption         budget + usage-anomaly alerts (from rollups)
+daily 00:10    meters:close-day                finalise ended daily consumption rows
+daily 00:15    meters:close-month              finalise ended monthly consumption rows
+daily 00:00    meters:prune-ingestion-events   retention for the ingestion audit log
+daily 02:30    alerts:prune                    retention for notifications/alerts/buffer
 ```
 
-once per minute, with Laravel's `withoutOverlapping()` guard.
+`queue:work` is REQUIRED (not optional): the alert delivery listener and all
+notifications are queued — without a worker, no alert is ever delivered.
 
 ## MQTT Consumer Lock
 
@@ -81,11 +89,9 @@ What it does:
 - resolves stale/down alerts when telemetry recovers
 - avoids creating duplicate open alerts for the same device and alert type
 
-Alert records are stored in:
-
-```text
-meter_alert_events
-```
+Alert records are stored in the device-agnostic `alert_events` table (see
+`docs/erd.md`). Delivery to users (bell + email digests) is handled by the
+queued pipeline and `alerts:dispatch-digests`, not by this scanner.
 
 ## Supervisor Example
 

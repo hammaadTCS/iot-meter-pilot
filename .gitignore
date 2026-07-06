@@ -22,3 +22,9 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Runtime artifacts
+/storage/framework/mqtt-consumer.lock
+
+# Claude Code personal settings
+.claude/settings.local.json

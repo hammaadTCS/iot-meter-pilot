@@ -84,7 +84,15 @@ class Device extends Model
      */
     public function alertEvents(): HasMany
     {
-        return $this->hasMany(MeterAlertEvent::class);
+        return $this->hasMany(AlertEvent::class);
+    }
+
+    /**
+     * A device has one opt-in alert configuration (budgets, thresholds, etc.).
+     */
+    public function alertSettings(): HasOne
+    {
+        return $this->hasOne(MeterAlertSetting::class);
     }
 
     /**

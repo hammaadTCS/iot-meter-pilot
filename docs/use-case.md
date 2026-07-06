@@ -28,14 +28,17 @@ graph TB
     end
 
     subgraph Reports
-        UC12[View Energy Summary - R1]
-        UC13[View Detailed Readings - R2]
-        UC14[Export CSV]
+        UC12[View Range Units / Monthly Consumption]
+        UC13[View Daily Breakdown per Month]
+        UC14[Export Aggregates CSV / NDJSON]
     end
 
-    subgraph Alerts
-        UC15[View Alert History]
-        UC16[Receive Email on Device Down]
+    subgraph Alerts & Notifications
+        UC15[View Alerts Console]
+        UC16[Receive Alert Digest - Bell / Email]
+        UC31[Configure Per-Meter Alert Triggers]
+        UC32[Set Notification Preferences]
+        UC33[Admin Fleet-Wide Alert Opt-In]
     end
 
     subgraph Device Management
@@ -55,10 +58,13 @@ graph TB
     end
 
     subgraph System Background
-        UC27[Ingest MQTT Telemetry]
+        UC27[Ingest MQTT Telemetry + Rollups]
         UC28[Scan Device Health]
-        UC29[Fire Alert Event]
+        UC34[Scan Consumption Budgets / Anomaly]
+        UC35[Scan Electrical Thresholds - debounced]
+        UC29[Dispatch Coalesced Alert Digests]
         UC30[Broadcast Real-Time Update]
+        UC36[Prune Old Alerts / Notifications / Audit]
     end
 
     U --> UC1
@@ -81,12 +87,15 @@ graph TB
     U --> UC18
     U --> UC19
     U --> UC20
+    U --> UC31
+    U --> UC32
 
     A --> UC2
     A --> UC21
     A --> UC22
     A --> UC23
     A --> UC24
+    A --> UC33
 
     SA --> UC25
     SA --> UC26
@@ -96,7 +105,13 @@ graph TB
 
     D --> UC27
     SYS --> UC28
+    SYS --> UC34
+    SYS --> UC35
+    SYS --> UC29
+    SYS --> UC36
     UC28 --> UC29
+    UC34 --> UC29
+    UC35 --> UC29
     UC27 --> UC30
 ```
 
@@ -105,22 +120,25 @@ graph TB
 | Actor | Description |
 |-------|-------------|
 | End User | Homeowner who monitors their own registered devices |
-| Admin | Staff who can manage all users and view all devices, but cannot delete users or change roles |
+| Admin | Staff who can manage all users and view all devices/alerts; may opt into fleet-wide alert delivery |
 | Super Admin | Full system access — can delete users and change roles |
 | IoT Device | Physical hardware (meter, AC, etc.) publishing MQTT messages |
-| System Scheduler | Laravel scheduled commands (e.g. `meters:scan-health`) running on cron |
+| System Scheduler | Laravel scheduled commands (see `docs/OPERATIONS_RUNBOOK.md` for the full schedule) |
 
 ## Implementation Status
 
 | Use Case | Status |
 |----------|--------|
 | UC1–UC6 Authentication | Done |
-| UC7–UC11 Device Monitoring | Done |
-| UC12 Energy Summary (R-1) | Data captured (`meter_monthly_consumption`); report UI not built |
-| UC13 Detailed Readings (R-2) | Not built |
-| UC14 Export CSV | Not built |
-| UC15 Alert History UI | Not built |
-| UC16 Email on Device Down | Not built |
+| UC7–UC11 Device Monitoring | Done (live KPIs render 0 while a meter is down) |
+| UC12 Range Units / Monthly Consumption | Done (KPI cards + 12-month chart, `RangeConsumption` service) |
+| UC13 Daily Breakdown per Month | Done (month picker + monthly total) |
+| UC14 Export | Done — **aggregates only** (daily units + monthly total, CSV/NDJSON); raw-readings export deliberately not built |
+| UC15 Alerts Console | Done (`/alerts`, owner-scoped; admins see fleet) |
+| UC16 Alert Digest Delivery | Done — bell (database+broadcast) live; **email pending a real mail transport** (`MAIL_MAILER=log`) |
+| UC31 Per-Meter Alert Triggers | Done (budgets, anomaly, voltage/power/pf thresholds, offline toggle) |
+| UC32 Notification Preferences | Done (severity floor, quiet hours) |
+| UC33 Admin Fleet Opt-In | Done (`fleet_scope`, admin-only) |
 | UC17–UC20 Device Management | Done |
-| UC21–UC26 Admin Functions | Done |
-| UC27–UC30 System Background | Done |
+| UC21–UC26 Admin Functions | Done (role-based; FGAC replacement is the pending task — `docs/FGAC_IMPLEMENTATION_PLAN.md`) |
+| UC27–UC30, UC34–UC36 System Background | Done (full schedule in `docs/OPERATIONS_RUNBOOK.md`) |

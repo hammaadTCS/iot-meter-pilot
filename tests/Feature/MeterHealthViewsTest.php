@@ -118,6 +118,70 @@ class MeterHealthViewsTest extends TestCase
             ->assertSee('Meter appears down. No telemetry has been received for 12m.');
     }
 
+    public function test_dashboard_zeroes_live_kpis_for_a_down_meter_but_keeps_cumulative_cards(): void
+    {
+        $meter = $this->createMeter([
+            'code' => 'meter-down-kpis',
+            'name' => 'Down KPIs Meter',
+            'last_seen_at' => now()->subMinutes(12), // down (> 10m silent)
+            'is_active' => true,
+        ]);
+
+        LatestMeterState::create([
+            'device_id'         => $meter->id,
+            'ts'                => 1776762780,
+            'voltage'           => 220.40,
+            'current'           => 0.226,
+            'power'             => 21.50,
+            'energy_pzem_wh'    => 77661,
+            'monthly_units_kwh' => 2.921,
+            'frequency'         => 49.80,
+            'pf'                => 0.43,
+            'received_at'       => now()->subMinutes(12),
+        ]);
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        $response->assertOk()
+            // Instantaneous cards render 0 — a frozen last-known value on a
+            // silent meter is misleading.
+            ->assertSee('id="kpi-voltage">0<', false)
+            ->assertSee('id="kpi-current">0<', false)
+            ->assertSee('id="kpi-power">0<', false)
+            ->assertSee('id="kpi-freq">0<', false)
+            ->assertSee('id="kpi-pf">0<', false)
+            // Cumulative cards keep their true totals.
+            ->assertSee('2.921')     // monthly units
+            ->assertSee('77.661');   // PZEM counter in kWh
+    }
+
+    public function test_dashboard_shows_live_kpi_values_for_a_fresh_meter(): void
+    {
+        $meter = $this->createMeter([
+            'code' => 'meter-live-kpis',
+            'name' => 'Live KPIs Meter',
+            'last_seen_at' => now()->subSeconds(30), // comfortably online
+            'is_active' => true,
+        ]);
+
+        LatestMeterState::create([
+            'device_id'   => $meter->id,
+            'ts'          => 1776762780,
+            'voltage'     => 220.40,
+            'current'     => 0.226,
+            'power'       => 21.50,
+            'frequency'   => 49.80,
+            'pf'          => 0.43,
+            'received_at' => now()->subSeconds(30),
+        ]);
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        $response->assertOk()
+            ->assertSee('id="kpi-voltage">220.4<', false)
+            ->assertSee('id="kpi-pf">0.43<', false);
+    }
+
     public function test_dashboard_uses_latest_state_received_at_for_initial_current_timestamp(): void
     {
         $meter = $this->createMeter([

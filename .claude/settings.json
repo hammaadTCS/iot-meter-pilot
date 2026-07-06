@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.lock$|\\\\.log$|\\\\.env\")",
+      "Bash(git rm *)",
+      "Bash(awk '{print $1}')"
+    ]
+  }
+}

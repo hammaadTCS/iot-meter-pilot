@@ -12,8 +12,29 @@ Schedule::command('meters:scan-health')
     ->everyMinute()
     ->withoutOverlapping();
 
+// Flush the alert coalescing buffer — one digest per user per minute.
+Schedule::command('alerts:dispatch-digests')
+    ->everyMinute()
+    ->withoutOverlapping();
+
+// Consumption alert detector (budgets, anomaly) — reads the rollups, hourly.
+Schedule::command('alerts:scan-consumption')
+    ->hourly()
+    ->withoutOverlapping();
+
+// Electrical threshold detector (voltage/power/pf) — reads latest state,
+// per-minute with debounce so transients never flap.
+Schedule::command('alerts:scan-thresholds')
+    ->everyMinute()
+    ->withoutOverlapping();
+
 Schedule::command('meters:prune-ingestion-events --days=30')
     ->daily()
+    ->withoutOverlapping();
+
+// Retention for the alert/notification subsystem.
+Schedule::command('alerts:prune')
+    ->dailyAt('02:30')
     ->withoutOverlapping();
 
 // Safety net: freeze daily consumption rows for days that have ended but whose

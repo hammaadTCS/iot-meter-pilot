@@ -36,7 +36,7 @@ class MeterHealthAlertCommandTest extends TestCase
         $this->artisan('meters:scan-health')
             ->assertExitCode(0);
 
-        $this->assertDatabaseHas('meter_alert_events', [
+        $this->assertDatabaseHas('alert_events', [
             'device_id' => $device->id,
             'alert_type' => 'telemetry_stale',
             'severity' => 'warning',
@@ -46,14 +46,14 @@ class MeterHealthAlertCommandTest extends TestCase
         $this->artisan('meters:scan-health')
             ->assertExitCode(0);
 
-        $this->assertDatabaseCount('meter_alert_events', 1);
+        $this->assertDatabaseCount('alert_events', 1);
 
         $device->forceFill(['last_seen_at' => now()])->save();
 
         $this->artisan('meters:scan-health')
             ->assertExitCode(0);
 
-        $this->assertDatabaseHas('meter_alert_events', [
+        $this->assertDatabaseHas('alert_events', [
             'device_id' => $device->id,
             'alert_type' => 'telemetry_stale',
             'status' => 'resolved',
@@ -75,18 +75,45 @@ class MeterHealthAlertCommandTest extends TestCase
         $this->artisan('meters:scan-health')
             ->assertExitCode(0);
 
-        $this->assertDatabaseHas('meter_alert_events', [
+        $this->assertDatabaseHas('alert_events', [
             'device_id' => $device->id,
             'alert_type' => 'telemetry_stale',
             'status' => 'resolved',
         ]);
 
-        $this->assertDatabaseHas('meter_alert_events', [
+        $this->assertDatabaseHas('alert_events', [
             'device_id' => $device->id,
             'alert_type' => 'telemetry_down',
             'severity' => 'critical',
             'status' => 'open',
         ]);
+    }
+
+    public function test_offline_alerts_can_be_opted_out_per_meter(): void
+    {
+        $device = $this->createMeter([
+            'last_seen_at' => now()->subMinutes(12), // down territory
+        ]);
+        \App\Models\MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
+
+        $this->artisan('meters:scan-health')->assertExitCode(0);
+
+        $this->assertDatabaseCount('alert_events', 0);
+    }
+
+    public function test_opting_out_resolves_an_already_open_offline_alert(): void
+    {
+        $device = $this->createMeter([
+            'last_seen_at' => now()->subMinutes(12),
+        ]);
+
+        $this->artisan('meters:scan-health'); // opens telemetry_down
+        $this->assertDatabaseHas('alert_events', ['device_id' => $device->id, 'status' => 'open']);
+
+        \App\Models\MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
+        $this->artisan('meters:scan-health');
+
+        $this->assertDatabaseMissing('alert_events', ['device_id' => $device->id, 'status' => 'open']);
     }
 
     private function createMeter(array $attributes = []): Device

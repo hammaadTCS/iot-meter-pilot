@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Controllers\AlertController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceDashboardController;
 use App\Http\Controllers\DeviceManagementController;
+use App\Http\Controllers\MeterAlertSettingsController;
+use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\NotificationPreferenceController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UserManagementController;
 use Illuminate\Support\Facades\Route;
@@ -15,6 +19,16 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+
+    // In-app notification bell
+    Route::post('/notifications/read', [NotificationController::class, 'markAllRead'])->name('notifications.read');
+
+    // Alerts console — visibility scoped inside AlertEvent::visibleTo()
+    Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
+
+    // Notification preferences
+    Route::get('/settings/notifications',   [NotificationPreferenceController::class, 'edit'])->name('settings.notifications.edit');
+    Route::patch('/settings/notifications', [NotificationPreferenceController::class, 'update'])->name('settings.notifications.update');
 
     // Profile
     Route::get('/profile',    [ProfileController::class, 'edit'])->name('profile.edit');
@@ -29,6 +43,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::patch('/devices/{device}',          [DeviceManagementController::class, 'update'])->name('devices.update');
     Route::delete('/devices/{device}',         [DeviceManagementController::class, 'destroy'])->name('devices.destroy');
     Route::get('/devices/{device}/dashboard',  [DeviceDashboardController::class, 'show'])->name('devices.dashboard');
+    Route::get('/devices/{device}/alerts',      [MeterAlertSettingsController::class, 'edit'])->name('devices.alerts.edit');
+    Route::patch('/devices/{device}/alerts',    [MeterAlertSettingsController::class, 'update'])->name('devices.alerts.update');
 
     // Backward-compat redirect — remove in Phase 6
     Route::get('/devices/manage', fn() => redirect()->route('devices.index'))->name('devices.manage');

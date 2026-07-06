@@ -31,6 +31,10 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->registerPolicies();
+
+        // NOTE: EnqueueAlertForDelivery is auto-discovered for AlertOpened /
+        // AlertResolved from its handle() type-hint — no manual registration
+        // (adding it here would double-fire the listener).
     }
 
     /**

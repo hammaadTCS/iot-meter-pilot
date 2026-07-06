@@ -2,8 +2,10 @@
 
 namespace App\Console\Commands;
 
+use App\Events\AlertOpened;
+use App\Events\AlertResolved;
+use App\Models\AlertEvent;
 use App\Models\Device;
-use App\Models\MeterAlertEvent;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -19,6 +21,7 @@ class ScanMeterHealth extends Command
         $referenceTime = now();
         $query = Device::query()
             ->where('type', 'meter')
+            ->with('alertSettings')   // offline_enabled opt-out, one query for the chunk
             ->orderBy('id');
 
         if ($this->option('device')) {
@@ -32,9 +35,20 @@ class ScanMeterHealth extends Command
         $query->chunkById(100, function ($devices) use ($referenceTime, &$scanned, &$opened, &$resolved) {
             foreach ($devices as $device) {
                 $scanned++;
-                [$openedNow, $resolvedNow] = $this->syncDeviceAlerts($device, $referenceTime);
-                $opened += $openedNow;
-                $resolved += $resolvedNow;
+
+                // syncDeviceAlerts commits its transaction before returning, so we
+                // fire the transition events *after* commit — the (queued) delivery
+                // listener can then safely read the persisted alert rows.
+                $result = $this->syncDeviceAlerts($device, $referenceTime);
+
+                foreach ($result['opened'] as $alert) {
+                    event(new AlertOpened($alert));
+                    $opened++;
+                }
+                foreach ($result['resolved'] as $alert) {
+                    event(new AlertResolved($alert));
+                    $resolved++;
+                }
             }
         });
 
@@ -52,33 +66,59 @@ class ScanMeterHealth extends Command
     /**
      * Keep one open alert per device/type, resolving stale states as telemetry
      * recovers or as the device moves into a more severe health state.
+     *
+     * Returns the AlertEvent models that actually transitioned this scan, so the
+     * caller fires AlertOpened / AlertResolved exactly once per genuine change
+     * (never per scan — that is the structural anti-spam guarantee).
+     *
+     * @return array{opened: list<AlertEvent>, resolved: list<AlertEvent>}
      */
     private function syncDeviceAlerts(Device $device, $referenceTime): array
     {
         return DB::transaction(function () use ($device, $referenceTime) {
+            $opened = [];
+            $resolved = [];
+
+            /*
+             * Per-meter opt-out: offline alerts are on by default (no settings
+             * row = enabled), but a user can switch them off. Opting out also
+             * resolves anything currently open, so the console/bell don't keep
+             * showing an alert the user asked not to receive.
+             */
+            if ($device->alertSettings && ! $device->alertSettings->offline_enabled) {
+                $resolved = array_merge(
+                    $this->resolveOpenAlerts($device, 'telemetry_stale', $referenceTime),
+                    $this->resolveOpenAlerts($device, 'telemetry_down', $referenceTime),
+                );
+
+                return ['opened' => $opened, 'resolved' => $resolved];
+            }
+
             $health = $device->healthSnapshot($referenceTime);
             $status = $health['status'];
-            $opened = 0;
-            $resolved = 0;
 
             if ($status === 'down') {
-                $resolved += $this->resolveOpenAlert($device, 'telemetry_stale', $referenceTime);
-                $opened += $this->openAlertIfMissing($device, 'telemetry_down', 'critical', $health, $referenceTime);
+                $resolved = array_merge($resolved, $this->resolveOpenAlerts($device, 'telemetry_stale', $referenceTime));
+                if ($event = $this->openAlertIfMissing($device, 'telemetry_down', 'critical', $health, $referenceTime)) {
+                    $opened[] = $event;
+                }
 
-                return [$opened, $resolved];
+                return ['opened' => $opened, 'resolved' => $resolved];
             }
 
             if ($status === 'stale') {
-                $resolved += $this->resolveOpenAlert($device, 'telemetry_down', $referenceTime);
-                $opened += $this->openAlertIfMissing($device, 'telemetry_stale', 'warning', $health, $referenceTime);
+                $resolved = array_merge($resolved, $this->resolveOpenAlerts($device, 'telemetry_down', $referenceTime));
+                if ($event = $this->openAlertIfMissing($device, 'telemetry_stale', 'warning', $health, $referenceTime)) {
+                    $opened[] = $event;
+                }
 
-                return [$opened, $resolved];
+                return ['opened' => $opened, 'resolved' => $resolved];
             }
 
-            $resolved += $this->resolveOpenAlert($device, 'telemetry_stale', $referenceTime);
-            $resolved += $this->resolveOpenAlert($device, 'telemetry_down', $referenceTime);
+            $resolved = array_merge($resolved, $this->resolveOpenAlerts($device, 'telemetry_stale', $referenceTime));
+            $resolved = array_merge($resolved, $this->resolveOpenAlerts($device, 'telemetry_down', $referenceTime));
 
-            return [$opened, $resolved];
+            return ['opened' => $opened, 'resolved' => $resolved];
         });
     }
 
@@ -88,8 +128,8 @@ class ScanMeterHealth extends Command
         string $severity,
         array $health,
         $referenceTime,
-    ): int {
-        $existing = MeterAlertEvent::query()
+    ): ?AlertEvent {
+        $existing = AlertEvent::query()
             ->where('device_id', $device->id)
             ->where('alert_type', $alertType)
             ->where('status', 'open')
@@ -97,11 +137,12 @@ class ScanMeterHealth extends Command
             ->first();
 
         if ($existing) {
-            return 0;
+            return null;
         }
 
-        MeterAlertEvent::create([
+        return AlertEvent::create([
             'device_id' => $device->id,
+            'device_type' => $device->type,
             'alert_type' => $alertType,
             'severity' => $severity,
             'status' => 'open',
@@ -115,20 +156,35 @@ class ScanMeterHealth extends Command
             ],
             'triggered_at' => $referenceTime,
         ]);
-
-        return 1;
     }
 
-    private function resolveOpenAlert(Device $device, string $alertType, $referenceTime): int
+    /**
+     * Resolve every open alert of a type for a device and return the resolved
+     * models (so the caller can fire AlertResolved for each).
+     *
+     * @return list<AlertEvent>
+     */
+    private function resolveOpenAlerts(Device $device, string $alertType, $referenceTime): array
     {
-        return MeterAlertEvent::query()
+        $open = AlertEvent::query()
             ->where('device_id', $device->id)
             ->where('alert_type', $alertType)
             ->where('status', 'open')
-            ->update([
-                'status' => 'resolved',
-                'resolved_at' => $referenceTime,
-                'updated_at' => $referenceTime,
-            ]);
+            ->lockForUpdate()
+            ->get();
+
+        if ($open->isEmpty()) {
+            return [];
+        }
+
+        AlertEvent::whereIn('id', $open->pluck('id'))->update([
+            'status' => 'resolved',
+            'resolved_at' => $referenceTime,
+            'updated_at' => $referenceTime,
+        ]);
+
+        return $open->each(function (AlertEvent $alert) use ($referenceTime) {
+            $alert->forceFill(['status' => 'resolved', 'resolved_at' => $referenceTime]);
+        })->all();
     }
 }

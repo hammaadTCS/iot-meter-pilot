@@ -1,41 +1,20 @@
 @props(['breadcrumbs' => [], 'actions' => null])
 
 @php
-// ── Placeholder notifications (FRONT-END ONLY) ───────────────────────────────
-// Static sample data so the bell + popup can be designed and reviewed ahead of
-// the real alerts feature. There is intentionally NO backend wiring here yet.
-// When implementing for real, replace this array with data sourced from
-// MeterAlertEvent (scoped to the authenticated user's devices) and derive the
-// unread count from a "read_at"-style column instead of count().
-$notifications = [
-    [
-        'type'    => 'warning',
-        'title'   => 'High voltage detected',
-        'message' => 'Meter “Main Feeder” reported 248 V, above the safe threshold.',
-        'time'    => '2 min ago',
-    ],
-    [
-        'type'    => 'info',
-        'title'   => 'Meter back online',
-        'message' => 'Telemetry resumed for “Workshop Sub-Meter”.',
-        'time'    => '1 hour ago',
-    ],
-    [
-        'type'    => 'success',
-        'title'   => 'Monthly report ready',
-        'message' => 'Your May consumption summary is now available.',
-        'time'    => 'Yesterday',
-    ],
-];
+    // Real notifications for the signed-in user (database channel). The bell
+    // shows the 10 most recent; the ping dot + "N new" badge use the unread count.
+    $authUser = auth()->user();
+    $notifications = $authUser
+        ? $authUser->notifications()->latest()->limit(10)->get()
+        : collect();
+    $unreadCount = $authUser ? $authUser->unreadNotifications()->count() : 0;
 
-$unreadCount = count($notifications);
-
-// Per-severity icon accent, aligned with the iot-* token palette.
-$notificationAccent = [
-    'warning' => 'text-iot-amber',
-    'info'    => 'text-iot-accent',
-    'success' => 'text-iot-green',
-];
+    // Per-severity icon accent, aligned with the iot-* token palette.
+    $severityAccent = [
+        'critical' => 'text-iot-red',
+        'warning'  => 'text-iot-amber',
+        'info'     => 'text-iot-accent',
+    ];
 @endphp
 
 <header class="flex-shrink-0 flex items-center justify-between h-16 px-4 sm:px-6
@@ -92,13 +71,11 @@ $notificationAccent = [
                         <path stroke-linecap="round" stroke-linejoin="round"
                               d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                     </svg>
-                    {{-- Unread indicator (pinging dot) --}}
-                    @if($unreadCount > 0)
-                        <span class="absolute top-1.5 right-1.5 flex">
-                            <span class="absolute inline-flex w-2 h-2 rounded-full bg-iot-red opacity-75 animate-ping"></span>
-                            <span class="relative inline-flex w-2 h-2 rounded-full bg-iot-red"></span>
-                        </span>
-                    @endif
+                    {{-- Unread indicator — always in the DOM so realtime can reveal it. --}}
+                    <span id="notif-dot" class="absolute top-1.5 right-1.5 flex {{ $unreadCount > 0 ? '' : 'hidden' }}">
+                        <span class="absolute inline-flex w-2 h-2 rounded-full bg-iot-red opacity-75 animate-ping"></span>
+                        <span class="relative inline-flex w-2 h-2 rounded-full bg-iot-red"></span>
+                    </span>
                 </button>
             </x-slot>
             <x-slot name="content">
@@ -116,20 +93,27 @@ $notificationAccent = [
                 {{-- Notification list (scrolls if it overflows) --}}
                 <div class="max-h-80 overflow-y-auto">
                     @forelse($notifications as $note)
-                        <div class="flex items-start gap-3 px-4 py-3 border-b border-iot-border/60
-                                    hover:bg-iot-surface2/60 transition-colors cursor-default">
-                            <span class="mt-0.5 flex-shrink-0 {{ $notificationAccent[$note['type']] ?? 'text-iot-muted' }}">
+                        @php
+                            $data = $note->data;
+                            $accent = $severityAccent[$data['highest_severity'] ?? 'info'] ?? 'text-iot-muted';
+                        @endphp
+                        <a href="{{ $data['url'] ?? url('/alerts') }}"
+                           class="flex items-start gap-3 px-4 py-3 border-b border-iot-border/60
+                                  hover:bg-iot-surface2/60 transition-colors {{ $note->read_at ? 'opacity-60' : '' }}">
+                            <span class="mt-0.5 flex-shrink-0 {{ $accent }}">
                                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round"
                                           d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                                 </svg>
                             </span>
                             <div class="min-w-0">
-                                <p class="text-sm text-white truncate">{{ $note['title'] }}</p>
-                                <p class="text-xs text-iot-muted mt-0.5">{{ $note['message'] }}</p>
-                                <p class="text-[10px] text-iot-muted/70 mt-1 font-mono">{{ $note['time'] }}</p>
+                                <p class="text-sm text-white truncate">{{ $data['title'] ?? 'Device alert' }}</p>
+                                @if(($data['count'] ?? 1) > 1)
+                                    <p class="text-xs text-iot-muted mt-0.5">{{ $data['count'] }} devices affected</p>
+                                @endif
+                                <p class="text-[10px] text-iot-muted/70 mt-1 font-mono">{{ $note->created_at->diffForHumans() }}</p>
                             </div>
-                        </div>
+                        </a>
                     @empty
                         <div class="px-4 py-8 text-center text-sm text-iot-muted">
                             You're all caught up.
@@ -138,12 +122,18 @@ $notificationAccent = [
                 </div>
 
                 {{-- Panel footer --}}
-                <div class="px-4 py-2.5 border-t border-iot-border">
-                    <button type="button"
-                            class="w-full text-center text-xs font-medium text-iot-accent
-                                   hover:text-white transition-colors">
-                        View all notifications
-                    </button>
+                <div class="flex items-center justify-between px-4 py-2.5 border-t border-iot-border">
+                    <form method="POST" action="{{ route('notifications.read') }}">
+                        @csrf
+                        <button type="submit"
+                                class="text-xs font-medium text-iot-muted hover:text-white transition-colors">
+                            Mark all read
+                        </button>
+                    </form>
+                    <a href="{{ url('/alerts') }}"
+                       class="text-xs font-medium text-iot-accent hover:text-white transition-colors">
+                        View all
+                    </a>
                 </div>
             </x-slot>
         </x-dropdown>
@@ -176,6 +166,12 @@ $notificationAccent = [
                     </svg>
                     Profile
                 </x-dropdown-link>
+                <x-dropdown-link :href="route('settings.notifications.edit')">
+                    <svg class="w-4 h-4 mr-2 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    Notifications
+                </x-dropdown-link>
                 <form method="POST" action="{{ route('logout') }}">
                     @csrf
                     <x-dropdown-link :href="route('logout')"
@@ -190,3 +186,18 @@ $notificationAccent = [
         </x-dropdown>
     </div>
 </header>
+
+@auth
+{{-- Realtime bell: reveal the unread dot when a notification broadcasts on the
+     user's private channel (window.Echo is compiled from resources/js/echo.js). --}}
+<script>
+(function () {
+    if (typeof window.Echo === 'undefined') return;
+    window.Echo.private('App.Models.User.{{ auth()->id() }}')
+        .notification(function () {
+            var dot = document.getElementById('notif-dot');
+            if (dot) dot.classList.remove('hidden');
+        });
+})();
+</script>
+@endauth

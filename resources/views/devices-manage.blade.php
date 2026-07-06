@@ -90,6 +90,14 @@
                                                       hover:bg-iot-accent/20 transition-colors whitespace-nowrap">
                                                 Dashboard
                                             </a>
+                                            @can('update', $device)
+                                                <a href="{{ route('devices.alerts.edit', $device) }}"
+                                                   class="px-3 py-1.5 rounded-lg text-xs font-medium
+                                                          text-iot-amber border border-iot-amber/20
+                                                          hover:bg-iot-amber/10 transition-colors">
+                                                    Alerts
+                                                </a>
+                                            @endcan
                                         @endif
                                         <a href="{{ route('devices.edit', $device) }}"
                                            class="px-3 py-1.5 rounded-lg text-xs font-medium

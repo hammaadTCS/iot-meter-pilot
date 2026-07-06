@@ -855,25 +855,31 @@
          Always show the single most-recent reading.
          Updated by the auto-refresh cycle via updateKPIs().
     ══════════════════════════════════════════════════════════ --}}
+    {{-- Instantaneous electrical readings (voltage/current/power/frequency/pf)
+         render as 0 while the meter is DOWN — a frozen last-known 230 V on a
+         dead meter is misleading. Cumulative cards (Monthly/Range Units, PZEM
+         counter) keep their values: totals remain true regardless of liveness.
+         The same rule is applied live in updateKPIs()/refreshDeviceHealth(). --}}
+    @php($liveKpisDown = ($deviceHealth['status'] ?? '') === 'down')
     <div class="kpi-grid">
         <div class="kpi kpi--voltage">
             <span class="kpi-icon">⚡</span>
             <div class="kpi-label">Voltage</div>
-            <div class="kpi-value" id="kpi-voltage">{{ data_get($currentSnapshot, 'voltage') ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-voltage">{{ $liveKpisDown ? '0' : (data_get($currentSnapshot, 'voltage') ?? '—') }}</div>
             <div class="kpi-unit">V</div>
         </div>
 
         <div class="kpi kpi--current">
             <span class="kpi-icon">〜</span>
             <div class="kpi-label">Current</div>
-            <div class="kpi-value" id="kpi-current">{{ data_get($currentSnapshot, 'current') ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-current">{{ $liveKpisDown ? '0' : (data_get($currentSnapshot, 'current') ?? '—') }}</div>
             <div class="kpi-unit">A</div>
         </div>
 
         <div class="kpi kpi--power">
             <span class="kpi-icon">◈</span>
             <div class="kpi-label">Power</div>
-            <div class="kpi-value" id="kpi-power">{{ data_get($currentSnapshot, 'power') ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-power">{{ $liveKpisDown ? '0' : (data_get($currentSnapshot, 'power') ?? '—') }}</div>
             <div class="kpi-unit">W</div>
         </div>
 
@@ -910,14 +916,14 @@
         <div class="kpi kpi--freq">
             <span class="kpi-icon">≋</span>
             <div class="kpi-label">Frequency</div>
-            <div class="kpi-value" id="kpi-freq">{{ data_get($currentSnapshot, 'frequency') ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-freq">{{ $liveKpisDown ? '0' : (data_get($currentSnapshot, 'frequency') ?? '—') }}</div>
             <div class="kpi-unit">Hz</div>
         </div>
 
         <div class="kpi kpi--pf">
             <span class="kpi-icon">∿</span>
             <div class="kpi-label">Power Factor</div>
-            <div class="kpi-value" id="kpi-pf">{{ data_get($currentSnapshot, 'pf') ?? '—' }}</div>
+            <div class="kpi-value" id="kpi-pf">{{ $liveKpisDown ? '0' : (data_get($currentSnapshot, 'pf') ?? '—') }}</div>
             <div class="kpi-unit">PF</div>
         </div>
 
@@ -1686,12 +1692,28 @@ function applyDeviceHealthState(healthState) {
     }
 }
 
+/**
+ * Tracks whether the live KPI cards are currently rendered as zeros (meter
+ * down), so the health tick re-renders them only on a state transition rather
+ * than every second.
+ */
+let liveKpisZeroed = INITIAL_DEVICE_HEALTH.status === 'down';
+
 /** Recompute and apply meter health from the current last-seen timestamp. */
 function refreshDeviceHealth() {
     const healthState = computeDeviceHealthState();
 
     applyDeviceHealthState(healthState);
     refreshAvailabilityFromHealth(healthState);
+
+    // Flip the instantaneous KPI cards between live values and zeros exactly
+    // when the meter crosses the down boundary (updateKPIs reads the same
+    // health state, so one call renders the correct variant).
+    const isDown = healthState.status === 'down';
+    if (isDown !== liveKpisZeroed) {
+        liveKpisZeroed = isDown;
+        updateKPIs();
+    }
 
     if (currentIssueState?.status === 'recovered' && healthState.status !== 'online') {
         currentIssueState = {
@@ -2005,16 +2027,21 @@ function updateKPIs() {
     const snapshot = currentSnapshot;
     const timestampParts = formatTimestampParts(snapshot?.recorded_at);
 
-    document.getElementById('kpi-voltage').textContent       = snapshot?.voltage   ?? '—';
-    document.getElementById('kpi-current').textContent       = snapshot?.current   ?? '—';
-    document.getElementById('kpi-power').textContent         = snapshot?.power     ?? '—';
+    // While the meter is DOWN the instantaneous readings are shown as 0 — the
+    // last-known voltage/power of a silent meter is misleading. Cumulative
+    // cards (Monthly/Range Units, PZEM counter) keep their true totals.
+    const zeroLive = computeDeviceHealthState().status === 'down';
+
+    document.getElementById('kpi-voltage').textContent       = zeroLive ? '0' : (snapshot?.voltage   ?? '—');
+    document.getElementById('kpi-current').textContent       = zeroLive ? '0' : (snapshot?.current   ?? '—');
+    document.getElementById('kpi-power').textContent         = zeroLive ? '0' : (snapshot?.power     ?? '—');
     document.getElementById('kpi-monthly-units').textContent = formatKwh(snapshot?.monthly_units_kwh);
     document.getElementById('kpi-energy-p').textContent      = whToKwh(snapshot?.energy_pzem_wh);
 
     // Mirror the live monthly figure onto the current-month bar of the panel.
     updateMonthlyChartCurrent(snapshot?.monthly_units_kwh);
-    document.getElementById('kpi-freq').textContent          = snapshot?.frequency ?? '—';
-    document.getElementById('kpi-pf').textContent            = snapshot?.pf        ?? '—';
+    document.getElementById('kpi-freq').textContent          = zeroLive ? '0' : (snapshot?.frequency ?? '—');
+    document.getElementById('kpi-pf').textContent            = zeroLive ? '0' : (snapshot?.pf        ?? '—');
     document.getElementById('kpi-ts').innerHTML =
         `${timestampParts.date}<br><span style="font-size:19px">${timestampParts.time}</span>`;
 }
