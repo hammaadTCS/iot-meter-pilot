@@ -1,451 +1,311 @@
-# Fine-Grained Access Control — Full Implementation Plan
+# Hybrid Access Control — Professional Implementation Plan (v2)
+
 **Project:** IoT Meter Pilot
-**Date:** 2026-06-04
-**Stack:** Laravel 12, MySQL, Redis, Spatie Laravel Permission, Sanctum, Blade + Alpine.js
+**Date:** 2026-07-10 · **Supersedes:** v1 (2026-06-04, pure per-user FGAC)
+**Stack (verified):** Laravel 12, **MySQL** (`DB_DATABASE=iot_meter_pilot`), Redis (installed, phpredis), Sanctum, Blade + Alpine.js, spatie/laravel-permission (to be installed — not yet in composer.json)
 
 ---
 
-## 1. What We Are Building and Why
+## 0. Executive Summary
 
-The current system has three hardcoded roles (`user`, `admin`, `super_admin`) stored as an enum
-on the `users` table. Access decisions are made by checking which role a user has. This means you
-cannot grant a user one specific capability without granting them the entire role's set of
-capabilities. It also means self-registration is allowed, which conflicts with the business model.
+Replace the 3-role enum system with a **hybrid access-control architecture**:
 
-The replacement is a **privilege-based system**:
-- There are only two account types: **Super Admin** (full access, can never be restricted) and
-  **regular Users** (start with zero access, granted specific privileges individually).
-- Every feature of the application is treated as a named privilege.
-- Super Admin creates all accounts. No self-registration.
-- Super Admin grants and revokes individual privileges from a dedicated management screen.
-- Users only see and interact with the features their privileges permit.
-
----
-
-## 2. Technology Choice — spatie/laravel-permission
-
-We use `spatie/laravel-permission` rather than building a custom pivot table layer because:
-
-- It integrates directly with Laravel's `Gate` and `Policy` system. Existing `@can()` Blade
-  directives and `$this->authorize()` controller calls continue to work without changes to their
-  call sites — only the underlying check logic changes.
-- It ships its own **cache layer** that stores the full permission set for a user in a single cache
-  key. With Redis as the cache store, every `can()` call within a request is a sub-millisecond
-  in-memory array lookup after the first one.
-- It provides three ready-made route middleware (`role:`, `permission:`, `role_or_permission:`)
-  that map directly to what we need.
-- It supports both the `web` guard (session-based) and the `sanctum` guard (token-based API),
-  which we need because the meter dashboard makes API calls via Sanctum.
-
----
-
-## 3. Infrastructure Change — Redis Cache (Do This First)
-
-Redis is already installed and configured in `.env` (`REDIS_CLIENT=phpredis`, `REDIS_HOST=127.0.0.1`).
-The only change is switching the cache driver.
-
-**Why this must happen before Spatie is installed:**
-Spatie begins using the cache immediately. If the cache is set to `file` at install time, every
-permission check during an HTTP request writes to and reads from disk. On the meter dashboard,
-the auto-refresh makes 3 API calls every 30 seconds. Each call loads the user's permission set.
-Over 24 hours that is ~8,640 cache reads. File cache: 2–4ms each. Redis: < 0.1ms each.
-
-**Changes to `.env`:**
-```
-CACHE_STORE=redis
-SESSION_DRIVER=database
-```
-
-Sessions move to `database` (they were already on `file`) for stability — file sessions can
-become stale under concurrent requests, database sessions cannot.
-
-**Verification:**
-```bash
-redis-cli ping                          # → PONG
-php artisan cache:clear
-php artisan tinker --execute="Cache::put('test',1,60); echo Cache::get('test');"  # → 1
-```
-
----
-
-## 4. Database Schema
-
-### 4a. New Tables (created by Spatie's migration)
-
-| Table | Purpose |
-|---|---|
-| `permissions` | One row per permission slug. Columns: id, name, guard_name |
-| `roles` | One row per role. We create exactly one: `super_admin` |
-| `model_has_permissions` | Pivot: user ↔ permission. Direct grants per user |
-| `model_has_roles` | Pivot: user ↔ role. Super Admin users are assigned the `super_admin` role |
-| `role_has_permissions` | Pivot: role ↔ permission. Super Admin role has all permissions |
-
-### 4b. Transitional Migration
-
-`make_role_nullable_on_users_table` — makes the existing `role` column nullable so new accounts
-created after the switch don't require it.
-
-### 4c. Cleanup Migration (Phase 7, deferred)
-
-`drop_role_from_users_table` — runs only after all PHP code references to `$user->role` are
-removed. This drops the column permanently.
-
-### 4d. Impact on Existing Tables
-
-None. The `meter_readings`, `latest_meter_states`, `devices`, `meter_ingestion_events`, and
-`meter_alert_events` tables are completely untouched. MQTT ingestion is unaffected.
-
----
-
-## 5. The Super Admin Bypass
-
-This one line, added to `AppServiceProvider::boot()`, is the single most important architectural
-decision:
-
-```php
-Gate::before(fn ($user, $ability) => $user->hasRole('super_admin') ? true : null);
-```
-
-When any `can()`, `@can()`, `authorize()`, or policy method is called for a Super Admin user,
-the Gate evaluates this callback first and returns `true` immediately — bypassing every policy
-and permission check in the application. This means:
-
-- Super Admin never needs explicit permissions listed.
-- No policy method, no Blade directive, no route middleware can accidentally block Super Admin.
-- Adding new features in the future never requires updating a Super Admin permission list.
-- The Super Admin experience is completely future-proof.
-
-`hasRole('super_admin')` itself reads from the Spatie role cache — it is a sub-millisecond
-in-memory check after the first request.
-
----
-
-## 6. Complete Permission List
-
-### Built-in (automatically granted when any account is created)
-
-| Slug | Guard | Purpose |
+| Layer | Mechanism | Who uses it |
 |---|---|---|
-| `dashboard.view` | web | Access the `/dashboard` page |
-| `devices.view_own` | web | See own assigned devices in list |
-| `api.devices.read` | sanctum | Call GET device endpoints via API |
-| `api.readings.read` | sanctum | Call readings/chart/snapshot API endpoints |
+| **Enforcement** (FGAC) | Permission slugs checked by `can()` everywhere | Code — routes, policies, controllers, Blade, API |
+| **Administration** (bundles) | Spatie roles as named permission sets | Humans — one dropdown at account creation |
+| **Exceptions** | Per-user direct grants on top of a bundle | Super Admin, for edge cases only |
 
-Each permission exists in both guards because the meter dashboard JS calls the API using
-Sanctum's stateful (cookie-based) authentication and the guard must match.
+**The invariant that makes it work:** application code checks *permissions only* — never
+roles. The single `hasRole()` in the codebase is the `Gate::before` super-admin bypass.
+Bundles exist purely so a human never toggles 25 checkboxes to onboard a user.
 
-### Grantable by Super Admin
+**Known Spatie limitation designed around:** effective permissions are a *union*
+(direct ∪ via-bundles). There is **no per-user deny**. Therefore bundles are kept lean
+(only what every member of the archetype needs); subtractive exceptions are handled by
+the "detach bundle → keep as direct grants" action in the permission UI (Phase 4).
 
-**Dashboard**
-| `dashboard.view_system_stats` | web | System-wide stats on dashboard |
-
-**Devices**
-| `devices.view_any` | web | See all devices regardless of owner |
-| `devices.create` | web | Register any device type, full form |
-| `devices.edit_own` | web | Full edit of own devices |
-| `devices.edit_any` | web | Full edit of any device |
-| `devices.delete_own` | web | Delete own devices |
-| `devices.delete_any` | web | Delete any device |
-| `devices.assign_owner` | web | Change device's user_id |
-
-**Meter System**
-| `meter.access` | web | Master gate — enter meter dashboards at all |
-| `meter.self_provision` | web | Register own meter devices (type locked, self-owned) |
-| `meter.rename` | web | Edit only the name field of own meters |
-| `meter.live_data` | web | Section 1 — 8 KPI cards |
-| `meter.charts` | web | Section 2 — 5 Chart.js charts |
-| `meter.history` | web | Section 3 — Paginated readings table |
-
-**Users**
-| `users.view_list` | web | `/users` paginated list |
-| `users.view_profile` | web | `/users/{user}` detail page |
-| `users.create` | web | Create user accounts |
-| `users.edit` | web | Edit user profiles |
-| `users.delete` | web | Delete user accounts |
-| `users.manage_permissions` | web | Per-user permission toggle screen |
-
-**API**
-| `api.devices.write` | sanctum | POST/DELETE `/api/devices` |
+Every phase ends in a **deployable state with a green test suite** and is one revertable
+commit. Core runtime systems — MQTT ingestion, rollups, alert detection/coalescing — are
+untouched: nothing in `app/Services/Meters/`, the consumer command, or the scan commands
+changes. Only two authorization *predicates* in the alert pipeline are swapped
+(§6, Phase 5), exactly at the seams left for this purpose.
 
 ---
 
-## 7. Meter System Permissions in Detail
+## 1. Decisions Locked Before Work Starts
 
-The meter system has the most granular permission structure because it is the core product.
-
-### 7a. meter.access — The Master Gate
-
-Without `meter.access`, opening `/devices/{device}/dashboard` for any meter returns the existing
-"disabled" placeholder view with a `reason = 'no_access'` message. No data is loaded. No API
-calls are made. The user sees a clear message that they do not have access to the meter system.
-
-With `meter.access`, the user enters the meter dashboard shell (header with device name, health
-pill, availability pill, status banners). What they see inside that shell depends on the three
-section permissions below.
-
-### 7b. meter.live_data — Section 1 (KPI Cards)
-
-The 8 live KPI cards: Voltage, Current, Power, Computed Energy, PZEM Energy, Frequency, Power
-Factor, Last Reading timestamp. These always show the most recent snapshot regardless of the
-selected time range.
-
-Without this permission: the KPI card grid is not rendered. The auto-refresh status poll
-(`GET /api/devices/{id}/status`) is not started. The header (device name, health, availability)
-is still visible — health state is informational, not a data privilege.
-
-### 7c. meter.charts — Section 2 (Graphs)
-
-The 5 Chart.js charts: Voltage+Current (dual Y-axis), Active Power, Energy Comparison
-(Computed vs PZEM), Grid Frequency, Power Factor (colour-coded bars). Chart data is sampled
-to at most 500 points over the selected time range.
-
-Without this permission: the charts section is not rendered. The Chart.js CDN script tag is
-not even emitted — users without this permission never download the 200KB library.
-The `GET /api/devices/{id}/readings/chart` endpoint returns 403 if called directly.
-
-### 7d. meter.history — Section 3 (Readings Table)
-
-The paginated readings table showing raw readings 100 rows per page, newest first, with
-timestamp, voltage, current, power, energies, frequency, and PF columns. Affected by the
-time range selector. Navigable with Prev/Next pagination.
-
-Without this permission: the table section and pagination bar are not rendered. Table fetch
-calls are not made. The `GET /api/devices/{id}/readings` endpoint returns 403.
-
-### 7e. Range Selector (Shared, Not a Separate Permission)
-
-The range selector (1H / 6H / 24H / Today / 7D / 30D / All + custom date picker) controls
-both the charts and the table. It is rendered only when at least one of `meter.charts` or
-`meter.history` is granted. It has no value when neither section is visible.
-
-A user with only `meter.live_data` (KPI cards) sees no range selector — it would have nothing
-to control.
-
-### 7f. meter.rename — Name-Only Editing
-
-A user with `meter.rename` but NOT `devices.edit_own` or `devices.edit_any` can open the edit
-page for their meter and change only the display name field. All other fields — MQTT topic,
-availability topic, device type, active/inactive toggle, assigned user — are shown as read-only
-text, not form inputs. The server enforces this: even if a crafted request sends other fields,
-`DeviceManagementController::update()` discards everything except `name`.
-
-A user with `devices.edit_own` or `devices.edit_any` has full edit access and `meter.rename`
-adds nothing for them.
-
-### 7g. meter.self_provision — Adding Own Meters
-
-A user with `meter.self_provision` but NOT `devices.create` can register new meter-type devices
-for themselves. They get a simplified create form where the device type is locked to "Meter"
-and there is no "Assign To User" dropdown. The server forces `user_id = auth()->id()` and
-rejects the form if `type !== 'meter'`.
-
-A user without either permission sees no "Add Device" button at all.
+| # | Decision | Resolution |
+|---|---|---|
+| **D1** | Self-registration (B2C scope says yes; v1 plan said no) | Config flag `auth.allow_registration` (env `AUTH_ALLOW_REGISTRATION`, **default `false`** per the documented business model). When `true`, registration auto-assigns the `consumer` bundle. Flipping the business decision later is one env change, zero code. |
+| **D2** | Migration is **deliberately not behavior-preserving** for regular users | Today a `user` can create devices and fully edit/delete their own ([DeviceManagementController.php:45-59](../app/Http/Controllers/DeviceManagementController.php#L45-L59)). Post-migration, `consumer` has rename-only + no create. This tightening is the point of the project (v1 §1). Users needing the old power get the `prosumer` bundle — a one-click re-grant. Communicate before cutover. |
+| **D3** | Old `admin` role maps to | `field_engineer` + `fleet_operator` bundles (composable — Spatie allows multiple roles per user). |
+| **D4** | Doc/file hygiene | Legacy root scratch files removed in Phase R (§4). Docs stay at 10 files: this plan replaces v1 in place. |
 
 ---
 
-## 8. Implementation Phases (Ordered for Safety)
+## 2. Verified Current-State Inventory (every touchpoint, from code)
 
-Each phase leaves the system in a working, deployable state. Never skip to the next phase
-until the current one is verified.
+### 2.1 Role checks to replace
 
-### Phase 0 — Switch Cache to Redis
-- Change `.env`: `CACHE_STORE=redis`, `SESSION_DRIVER=database`
-- Run `php artisan cache:clear`
-- Verify with `redis-cli ping`
-- **No code changes. Fully reversible.**
-
-### Phase 1 — Install Spatie, Add HasRoles, Register Gate Bypass
-- `composer require spatie/laravel-permission`
-- Publish and run Spatie migrations
-- Run transitional `make_role_nullable` migration
-- Add `use HasRoles` to `User` model (keep all existing methods)
-- Add `Gate::before` bypass to `AppServiceProvider`
-- Register Spatie middleware aliases in `bootstrap/app.php`
-- **Run test suite — must pass green. Zero behaviour change for users.**
-
-### Phase 2 — Seed Permissions and Migrate Existing Users
-- Create `PermissionSeeder`, `SuperAdminSeeder`, `MigrateRolesToPermissionsSeeder`
-- Run seeders
-- Verify with Tinker that each user class has the expected permissions
-
-### Phase 3 — Lock Down Registration
-- Return 404 from register routes
-- Add `abort(403)` inside `RegisteredUserController::store()`
-- Remove register links from login view and welcome view
-
-### Phase 4 — Permission Management UI
-- Create `PermissionController` with `show()` and `update()`
-- Create `resources/views/users/permissions.blade.php`
-- Add routes under `role:super_admin`
-- Update `UserManagementController::store()` to auto-assign built-in permissions
-- Remove role dropdown from create/edit user views
-- Add "Manage Permissions" link to users list and user detail
-
-### Phase 5 — Wire All Authorization Logic
-- Update `DevicePolicy` (all methods)
-- Update `DashboardController`
-- Update `DeviceManagementController` (including `meter.rename` + `meter.self_provision`)
-- Update `DeviceDashboardController` (`meter.access` gate + 3 section flags)
-- Update `DeviceReadingController` (`meter.charts` + `meter.history` guards on API)
-- Update `UserManagementController` (permission gates, remove `updateRole`)
-- Update `Api/DeviceController`
-- Update `routes/web.php` (per-route permission middleware)
-
-### Phase 6 — Update All Blade Views
-- `dashboard.blade.php` — guard stats strip
-- `devices-manage.blade.php` — guard create/edit/owner column
-- `devices-edit.blade.php` — name-only mode
-- `devices-create.blade.php` — self-provision mode
-- `devices/dashboards/meter.blade.php` — three-section conditional rendering + conditional JS
-- `users/index.blade.php` — guard create/delete/permissions links
-- `users/show.blade.php` — permissions link, remove role-change form
-- `auth/login.blade.php` — remove register link
-- `welcome.blade.php` — remove register link
-
-### Phase 7 — Cleanup
-- Remove `isAdminOrAbove()`, `isAdmin()` from `User` model
-- Delete `AdminMiddleware.php`
-- Remove `updateRole()` route and method
-- Run `drop_role_from_users_table` migration
-- Update test factories
-
----
-
-## 9. API Layer (Sanctum Guard)
-
-The meter dashboard is a browser-based SPA fragment that calls the Laravel API from JavaScript.
-These calls use Sanctum's stateful (cookie + CSRF) authentication — they are not token-based.
-The user's session is active, so the `web` guard user is available.
-
-However, when external API clients use Sanctum tokens (e.g., a mobile app or a provisioning
-script), the guard resolves as `sanctum`. Permissions are stored per-guard, so each permission
-is created in both `web` and `sanctum` guards during seeding.
-
-For the meter dashboard JS calls, `DeviceReadingController` uses `Auth::user()` which resolves
-through the active session — no extra permission lookup. The cache stores the permission set
-per-user regardless of guard, so the overhead remains the same.
-
----
-
-## 10. Performance Summary
-
-| Concern | Before | After | Notes |
-|---|---|---|---|
-| Permission check cost | N/A (role string compare) | < 0.1ms (Redis in-memory) | With Redis |
-| Meter dashboard 30s refresh | 2 DB queries/call | 2 DB queries + 0.1ms cache read/call | Redis |
-| Super Admin any page | Role check | Gate::before short-circuit | Faster |
-| Device list 8 rows @can | N/A | 0 extra DB queries | Cache is warm per request |
-| MQTT ingestion | Unaffected | Unaffected | Runs outside HTTP |
-| Chart.js CDN load | Always | Only when meter.charts granted | Saves 200KB for restricted users |
-
----
-
-## 11. Security Considerations
-
-**Permission cache invalidation window:** When Super Admin revokes a permission, `syncPermissions()`
-clears the user's cache entry immediately. However, if the user has an active session with a
-loaded permission set already in PHP memory for that specific request, the revocation takes
-effect on their next HTTP request. This is a seconds-long window, not a security hole.
-
-**Server-side enforcement is always the authority.** Every permission check exists both in
-the Blade view (to hide UI elements) AND in the controller (to reject the request). Hiding a
-button does not prevent a crafted HTTP request. Both layers are required.
-
-**The `meter.rename` strip-down is enforced at the server.** Even if a user manually crafts
-a PATCH request with MQTT topic changes, the controller discards everything except `name` when
-in name-only mode.
-
-**Super Admin accounts cannot have permissions managed.** `PermissionController::show()` calls
-`abort_if($user->hasRole('super_admin'), 403)` — it is not possible to view or modify a Super
-Admin's permissions through the UI, even by another Super Admin.
-
----
-
-## 12. Files Reference
-
-### New Files to Create
-
-| Path | Description |
+| Location | What it does today |
 |---|---|
-| `database/seeders/PermissionSeeder.php` | All permission slugs (both guards) + super_admin role |
-| `database/seeders/SuperAdminSeeder.php` | Ensure super admin account exists with role assigned |
-| `database/seeders/MigrateRolesToPermissionsSeeder.php` | One-time migration from role enum |
-| `app/Http/Controllers/PermissionController.php` | show() + update() |
-| `resources/views/users/permissions.blade.php` | Per-user permission toggle screen |
+| [User.php:66-93](../app/Models/User.php#L66-L93) | `canAccessDevice()`, `isSuperAdmin()`, `isAdminOrAbove()`, `isAdmin()`; `'role'` in `$fillable` |
+| [DevicePolicy.php](../app/Policies/DevicePolicy.php) | all methods = admin-or-owner; `viewAny()`/`create()` return `true` |
+| [AdminMiddleware](../app/Http/Middleware/AdminMiddleware.php) / [SuperAdminMiddleware](../app/Http/Middleware/SuperAdminMiddleware.php) | aliased `admin`/`superadmin` in [bootstrap/app.php:17-20](../bootstrap/app.php#L17-L20), used in [routes/web.php:53-66](../routes/web.php#L53-L66) |
+| [DashboardController.php:20,37](../app/Http/Controllers/DashboardController.php#L20) | system stats + device scope |
+| [DeviceManagementController.php](../app/Http/Controllers/DeviceManagementController.php) (lines 21-123) | list scope, create form, owner assignment, edit/delete gates |
+| [DeviceDashboardController.php:18](../app/Http/Controllers/DeviceDashboardController.php#L18) | admin-or-owner gate |
+| [UserManagementController.php](../app/Http/Controllers/UserManagementController.php) (43-131) | role dropdown validation, `updateRole()`, super-admin gates |
+| [Api/DeviceController.php:22](../app/Http/Controllers/Api/DeviceController.php#L22) | `isAdmin()` → unscoped query |
+| [NotificationPreferenceController.php:17,42](../app/Http/Controllers/NotificationPreferenceController.php#L17) | exposes `isAdmin` to view; gates `fleet_scope='all'` |
+| [AlertEvent::visibleTo()](../app/Models/AlertEvent.php#L54) | admin sees all alerts — **FGAC seam #1** |
+| [EnqueueAlertForDelivery::recipientIds()](../app/Listeners/EnqueueAlertForDelivery.php) | owner + fleet-scope users — **FGAC seam #2** |
+| [Device::forUser()](../app/Models/Device.php#L61-L64) | ownership scope (stays; callers decide when to bypass via `devices.view_any`) |
+| Blades | `devices-create/edit/manage`, `dashboard`, `users/{index,create,edit,show}`, `settings/notifications`, `components/sidebar`, `components/role-badge` |
+| Tests referencing `role` | `AuthenticationTest`, `AlertsConsoleTest`, `MeterAlertSettingsTest`, `NotificationPreferencesTest` (+ any factory usage) |
 
-### Files to Modify
+### 2.2 Dead / legacy code discovered (removed by this plan)
 
-| Path | Change |
-|---|---|
-| `.env` | `CACHE_STORE=redis`, `SESSION_DRIVER=database` |
-| `app/Models/User.php` | Add `HasRoles` trait |
-| `app/Providers/AppServiceProvider.php` | `Gate::before` super_admin bypass |
-| `bootstrap/app.php` | Spatie middleware aliases |
-| `routes/web.php` | Per-route `permission:` and `role:` middleware |
-| `routes/auth.php` | Disable register routes |
-| `app/Policies/DevicePolicy.php` | All methods rewritten to use `can()` |
-| `app/Http/Controllers/DashboardController.php` | `can()` for stats + device filter |
-| `app/Http/Controllers/DeviceManagementController.php` | Full gating + nameOnly + selfProvisionOnly |
-| `app/Http/Controllers/DeviceDashboardController.php` | meter.access gate + 3 section flags |
-| `app/Http/Controllers/DeviceReadingController.php` | meter.charts + meter.history guards |
-| `app/Http/Controllers/UserManagementController.php` | Permission gates, built-in auto-assign, remove updateRole |
-| `app/Http/Controllers/Api/DeviceController.php` | can('devices.view_any') for index |
-| `app/Http/Controllers/Auth/RegisteredUserController.php` | abort(403) in store() |
-| `resources/views/dashboard.blade.php` | Guard stats strip |
-| `resources/views/devices-manage.blade.php` | @can on create/edit/owner column |
-| `resources/views/devices-edit.blade.php` | nameOnly mode |
-| `resources/views/devices-create.blade.php` | selfProvisionOnly mode |
-| `resources/views/devices/dashboards/meter.blade.php` | Three-section splits + conditional JS |
-| `resources/views/users/index.blade.php` | @can on create/delete/permissions |
-| `resources/views/users/show.blade.php` | Permissions link, remove role form |
-| `resources/views/users/create.blade.php` | Remove role dropdown |
-| `resources/views/users/edit.blade.php` | Remove role dropdown |
-| `resources/views/auth/login.blade.php` | Remove register link |
-| `resources/views/welcome.blade.php` | Remove register link |
-| `database/seeders/DatabaseSeeder.php` | Call new seeders |
-
-### Files to Delete (Phase 7)
-
-| Path | Reason |
-|---|---|
-| `app/Http/Middleware/AdminMiddleware.php` | Replaced by Spatie `permission:` middleware |
+| Item | Evidence | Action |
+|---|---|---|
+| `app/Http/Controllers/MeterDashboardController.php` | referenced by **zero** routes/tests/code (grep-verified) | delete (Phase R) |
+| Root files `consumer`, `dashboard.`, `MySQL` | zero-byte accidental files | delete (Phase R) |
+| Root file `User::whereIn('id', [1,2,3,4,5,6])->…` | tinker output pasted into a filename | delete (Phase R) |
+| Root file `iot_meter_pilot` (SQLite) | stray artifact — **live DB is MySQL** with the same schema name | back up to `storage/backups/`, then delete (Phase R) |
+| Root scratch docs: `AUTH_IMPLEMENTATION_GUIDE.md`, `QUICK_START_AUTH.md`, `WEEK_1_AUTH_COMPLETE.md`, `WEEK_3_4_DETAILED.md`, `IMPLEMENTATION_PLAN.md`, `IMPLEMENTATION_CHECKLIST.md` | handbook §5 already declares them "historical scratch, not load-bearing" | delete (Phase R); `README.md`, `QUICK_START.md` stay |
+| `/devices/manage` redirect route | [web.php:50](../routes/web.php#L50) self-labelled "remove in Phase 6" | delete (Phase 7) |
+| `components/role-badge.blade.php` | meaningless without the role column | delete (Phase 7) |
+| `AdminMiddleware`, `SuperAdminMiddleware`, `User` role helpers, `updateRole()`, `users` role column + dropdowns | replaced by this system | delete (Phase 7) |
 
 ---
 
-## 13. Verification Checklist
+## 3. Target Design
 
-Run this after each phase before proceeding.
+### 3.1 Permission catalog (single source of truth = `PermissionSeeder`)
 
-**After Phase 0:**
-- `redis-cli ping` → `PONG`
-- `php artisan tinker` cache put/get works
+All slugs created in **both guards** (`web`, `sanctum`) where API-relevant.
 
-**After Phase 1:**
-- `php artisan test` → all green
-- Existing login/dashboard/device flows work normally
+**Built-in (member of every bundle — a user always holds ≥ these):**
 
-**After Phase 2:**
-- Tinker: existing user (role=user) has exactly 4 built-in permission slugs
-- Tinker: existing super_admin user has the `super_admin` Spatie role
+| Slug | Grants |
+|---|---|
+| `dashboard.view` | the `/dashboard` page |
+| `devices.view_own` | own devices in lists |
+| `alerts.view_own` | alerts console scoped to own devices |
+| `alerts.settings_own` | per-meter alert-trigger screen for own meters |
+| `api.devices.read` | GET device/status/snapshot API |
+| `api.readings.read` | readings/chart/consumption API |
 
-**After Phase 3:**
-- `GET /register` → HTTP 404
-- Login page has no register link
+Identity operations (login, logout, own profile CRUD, own notification prefs) are
+**not permission-gated** — tied to the authenticated session, per v1's CSV.
 
-**After Phase 4:**
-- Super Admin can open `/users/{user}/permissions`
-- Checking a permission and saving grants it
-- `$user->hasPermissionTo('meter.charts')` in Tinker reflects the change
+**Grantable:**
 
-**After Phase 5 + 6:**
-- Fresh user (built-in only): can see dashboard + own devices, everything else 403
-- Grant `meter.access` + `meter.live_data` only: dashboard shows KPI cards, no charts, no table, no range bar
-- Grant `meter.charts`: charts section appears, range bar appears
-- Grant `meter.history`: table + pagination + range bar appear
-- Revoke `meter.access`: meter dashboard shows placeholder
-- Super Admin: all sections always visible, no restrictions
+| Group | Slugs |
+|---|---|
+| Dashboard | `dashboard.view_system_stats` |
+| Devices | `devices.view_any`, `devices.create`, `devices.edit_own`, `devices.edit_any`, `devices.delete_own`, `devices.delete_any`, `devices.assign_owner` |
+| Meter | `meter.access`, `meter.self_provision`, `meter.rename`, `meter.live_data`, `meter.charts`, `meter.history` |
+| Alerts *(new — closes the v1 gap)* | `alerts.view_any` (fleet alert console), `alerts.fleet_scope` (may set `fleet_scope='all'` → fleet alert *delivery*) |
+| Users | `users.view_list`, `users.view_profile`, `users.create`, `users.edit`, `users.delete`, `users.manage_permissions` |
+| API | `api.devices.write` |
 
-**After Phase 7:**
-- `grep -r 'isAdminOrAbove\|isAdmin' app/` → no results
-- `php artisan test` → all green
-- `php artisan migrate:status` → `drop_role_from_users_table` shows as Ran
+Semantics of `meter.access` + the three section permissions, `meter.rename`
+name-only server-side stripping, and `meter.self_provision` type-locked/self-owned
+creation are **unchanged from v1 §7** — that design was correct and is adopted verbatim.
+
+### 3.2 Bundles (Spatie roles used *only* as grant templates)
+
+| Bundle | Built-ins + |
+|---|---|
+| `consumer` *(default)* | `meter.access`, `meter.live_data`, `meter.charts`, `meter.history`, `meter.rename` |
+| `prosumer` | consumer + `meter.self_provision`, `devices.edit_own`, `devices.delete_own` |
+| `field_engineer` | `devices.view_any`, `devices.create`, `devices.edit_any`, `devices.assign_owner`, `api.devices.write` |
+| `fleet_operator` | `devices.view_any`, `dashboard.view_system_stats`, `alerts.view_any`, `alerts.fleet_scope`, `users.view_list`, `users.view_profile` |
+| `super_admin` | *no permission rows* — `Gate::before` bypass |
+
+Rules: bundles are composable (a user may hold several); bundles stay lean; extras are
+direct grants; bundle contents are pinned by a snapshot test (Phase 8) so they cannot
+drift silently.
+
+### 3.3 Resolution order at runtime
+
+```
+can('meter.charts') → Gate::before: hasRole('super_admin')? → allow
+                    → Spatie cached set = direct ∪ bundle permissions   (Redis, ~0.1ms)
+                    → slug ∈ set → allow / deny
+```
+
+`DevicePolicy` combines permission + ownership (e.g. `update` =
+`devices.edit_any` ∨ (`devices.edit_own` ∧ owner) ∨ name-only path via `meter.rename`).
+
+---
+
+## 4. Phase R — Repository Hygiene (independent; do first)
+
+Pure deletion, zero behavior risk, its own commit.
+
+1. `mkdir -p storage/backups && mv iot_meter_pilot storage/backups/stray-root-sqlite-$(date +%F).sqlite` (verify app boots + `php artisan migrate:status` against MySQL afterwards).
+2. `git rm` the dead controller and stray/scratch files listed in §2.2 (Phase R rows).
+3. Full suite green; `php artisan route:list` unchanged.
+
+**Rollback:** `git revert` (backup file preserved outside git).
+
+---
+
+## 5. Phases 0–4 — Foundation (additive, zero user-visible change until Phase 5)
+
+### Phase 0 — Infrastructure
+- `.env`: `CACHE_STORE=redis`, `SESSION_DRIVER=database` (sessions table already exists as a framework table).
+- Verify: `redis-cli ping` → PONG; tinker cache put/get; log in/out still works.
+- **Rationale unchanged from v1 §3** (Spatie caches permission sets; the dashboard's 30s poll must hit Redis, not disk). Rollback: revert two env lines.
+
+### Phase 1 — Install & scaffold (no behavior change)
+- `composer require spatie/laravel-permission`; publish + run its migrations (5 tables, MySQL).
+- Transitional migration `make_role_nullable_on_users_table`. **MySQL note:** the column is an `enum`; modify with a raw `ALTER TABLE users MODIFY role ENUM('user','admin','super_admin') NULL` guarded by `if (DB::getDriverName() === 'mysql')`, with the SQLite branch a no-op recreate via `Schema::table()->change()` so the in-memory test DB (phpunit.xml) stays compatible.
+- `User`: add `use HasRoles`. Keep all existing helpers for now (dual-run window).
+- `AppServiceProvider::boot()`: `Gate::before(fn ($u, $a) => $u->hasRole('super_admin') ? true : null);`
+- `bootstrap/app.php`: register Spatie aliases `role`, `permission`, `role_or_permission` alongside the (temporary) `admin`/`superadmin`.
+- **Gate:** `php artisan test` fully green; manual smoke of login/dashboard/device flows.
+
+### Phase 2 — Seed catalog, bundles, migrate users
+- `PermissionSeeder` — idempotent (`firstOrCreate`), creates every slug (§3.1) in both guards, the 5 bundles, and `role_has_permissions` (§3.2).
+- `SuperAdminSeeder` — ensures the super-admin account holds the `super_admin` Spatie role.
+- `MigrateRolesToPermissionsSeeder` — one-time, idempotent: `user`→`consumer`; `admin`→`field_engineer`+`fleet_operator`; `super_admin`→`super_admin`. Logs a per-user summary line for audit.
+- Wire into `DatabaseSeeder`; run on prod after deploy.
+- **Gate:** tinker — a `role='user'` account returns exactly the consumer permission set from `getAllPermissions()`; suite green (old checks still in force — nothing enforces the new permissions yet, which is what makes this phase safe).
+
+### Phase 3 — Registration mode (D1)
+- `config/auth.php`: `'allow_registration' => env('AUTH_ALLOW_REGISTRATION', false)`.
+- [routes/auth.php:15-18](../routes/auth.php#L15-L18): wrap register routes in the config check (absent flag ⇒ 404, matching v1's intent).
+- `RegisteredUserController::store()`: `abort_unless(config('auth.allow_registration'), 403)` + on success `$user->assignRole('consumer')`.
+- Remove register links from `auth/login.blade.php`, `welcome.blade.php` (render conditionally on the flag).
+- **Tests:** new `RegistrationModeTest` (flag off → 404; flag on → account created holding `consumer`). Update `AuthenticationTest` accordingly.
+
+### Phase 4 — Permission management UI
+- `PermissionController::show()/update()` + `resources/views/users/permissions.blade.php`, routes under `role:super_admin`.
+- Screen layout: **bundle multiselect** on top (checkbox per bundle); below, the full slug list grouped by §3.1 category — slugs inherited from bundles render **locked + "via {bundle}"**, others as toggles (direct grants).
+- **"Detach bundle, keep as direct grants"** action — the escape hatch for subtractive exceptions (Spatie has no deny).
+- `update()` = `syncRoles()` + `syncPermissions()` in one transaction, then `app(PermissionRegistrar::class)->forgetCachedPermissions()`.
+- Guard: `abort_if($user->hasRole('super_admin'), 403)` — super-admin accounts are never editable here, even by another super admin (v1 §11 retained).
+- `UserManagementController::store()` gains a bundle dropdown (default `consumer`) and stops writing `role`.
+- **Tests:** new `PermissionManagementTest` (grant/revoke reflected in `can()`, super-admin lockout, detach action).
+
+---
+
+## 6. Phase 5 — Enforcement Cutover (the swap; one commit, biggest review)
+
+Every predicate below replaces a §2.1 role check. Old middleware/helpers stay alive
+(unused) until Phase 7 — instant `git revert` restores prior behavior.
+
+| File | New predicate |
+|---|---|
+| `DevicePolicy` | `viewAny` → true (lists are query-scoped); `view` → `devices.view_any` ∨ owner; `create` → `devices.create` ∨ `meter.self_provision`; `update` → `edit_any` ∨ (`edit_own` ∧ owner) ∨ (`meter.rename` ∧ owner, meters); `delete` → `delete_any` ∨ (`delete_own` ∧ owner); drop `restore`/`forceDelete` (no soft deletes on devices — dead methods) |
+| `DashboardController` | stats strip ← `dashboard.view_system_stats`; device scope ← `devices.view_any` |
+| `DeviceManagementController` | list scope ← `devices.view_any`; create/store ← policy + self-provision path (force `type='meter'`, `user_id=auth()->id()`, no owner dropdown); owner dropdown ← `devices.assign_owner`; edit/update ← policy + **server-side name-only strip** (`$validated = ['name' => …]` when in rename mode); destroy ← policy |
+| `DeviceDashboardController` | owner-or-`devices.view_any` + **`meter.access` master gate** (else existing placeholder view, `reason='no_access'`) + passes `$canViewLiveData/Charts/History` section flags |
+| `DeviceReadingController` | `abort_unless(can('meter.charts'))` on `chart()`; `abort_unless(can('meter.history'))` on `index()`; consumption/daily endpoints under `meter.access` |
+| `Api/DeviceController` | scope ← `devices.view_any`; writes already `$this->authorize()` → flow through the rewritten policy |
+| `UserManagementController` | gates ← `users.view_list/view_profile/create/edit`; **delete `updateRole()`**; store assigns bundle |
+| `NotificationPreferenceController` | `'isAdmin' =>` … ← `can('alerts.fleet_scope')`; line 42 fleet-scope guard ← same slug |
+| `AlertEvent::visibleTo()` *(seam #1)* | `isAdminOrAbove()` → `$user->can('alerts.view_any')` |
+| `EnqueueAlertForDelivery::recipientIds()` *(seam #2)* | fleet recipients = `User::permission('alerts.fleet_scope')` ∩ `notification_preferences.fleet_scope='all'` ∩ severity floor. Runs in the queue worker — one indexed join, never on the request path. **Restart the queue worker on deploy** (long-running process, stale code otherwise — same rule as the ops runbook's config changes). |
+| `routes/web.php` | `/users` group `admin` → `permission:users.view_list`; destroy `superadmin` → `role:super_admin`; permissions routes `role:super_admin` |
+| `routes/auth.php` | done in Phase 3 |
+
+**Factories & tests (same commit):** `UserFactory` gains `->consumer()`,
+`->prosumer()`, `->fieldEngineer()`, `->fleetOperator()`, `->superAdmin()` states
+(assigning bundles via `afterCreating`); a `TestCase` helper seeds the permission
+catalog once per suite. The four role-referencing test files switch to factory states.
+New `MeterSectionPermissionsTest` covers: no `meter.access` → placeholder;
+live_data-only → KPI yes / charts 403 / table 403 / no range bar; +charts → charts and
+range bar appear; +history → table appears; rename-mode PATCH with extra fields →
+only `name` persisted; self-provision POST with `type≠meter` or foreign `user_id` → rejected.
+
+**Gate:** full suite green; manual matrix from §9 passes.
+
+---
+
+## 7. Phase 6 — View Cutover
+
+`@can` replaces every role conditional; sections not permitted are **not rendered**
+(server-side view logic, not CSS hiding):
+
+- `dashboard.blade.php` — stats strip behind `@can('dashboard.view_system_stats')`.
+- `devices-manage.blade.php` — Add-Device button behind `@canany(['devices.create','meter.self_provision'])`; owner column behind `devices.view_any`; per-row edit/delete via `@can('update', $device)` / `@can('delete', $device)` (policy-driven, so rename-only users still see Edit).
+- `devices-create.blade.php` — self-provision mode: type locked to Meter, no owner dropdown.
+- `devices-edit.blade.php` — name-only mode: all fields except name rendered read-only.
+- `devices/dashboards/meter.blade.php` — three `@if($canView…)` section wraps; range bar `@if($canViewCharts || $canViewHistory)`; **Chart.js CDN tag and each JS initializer emitted only when its section exists** (guard on element presence, per v1 §7c).
+- `users/index|show|create|edit.blade.php` — permission-gated links; role dropdown/role-change form → bundle selector + "Manage Permissions" link.
+- `components/sidebar.blade.php` — nav items behind their permission (`users.view_list`, etc.).
+- `components/header.blade.php` — no change (bell is identity-scoped).
+
+**Gate:** suite green + the §9 matrix walked in a browser per bundle.
+
+---
+
+## 8. Phase 7 — Legacy Removal (the "old code out" commit)
+
+Only after Phases 5–6 have soaked in production for an agreed window (suggest ≥ 1 week):
+
+1. Delete `AdminMiddleware.php`, `SuperAdminMiddleware.php`; remove their aliases from `bootstrap/app.php`.
+2. `User.php`: remove `isSuperAdmin()`, `isAdminOrAbove()`, `isAdmin()`, `canAccessDevice()` (unused after policy rewrite — verify with grep first), and `'role'` from `$fillable`.
+3. Delete `components/role-badge.blade.php` and remaining role UI fragments.
+4. Remove the `/devices/manage` redirect ([web.php:50](../routes/web.php#L50)).
+5. Migration `drop_role_from_users_table` (MySQL `ALTER TABLE users DROP COLUMN role`; sqlite branch via `Schema`). Run **only after** `grep -rn "->role\|'role'" app/ resources/views/ routes/ tests/` returns nothing but Spatie's own API.
+6. Suite green; `route:list` shows no `admin`/`superadmin` middleware.
+
+**Rollback:** restore column from the pre-migration backup + `git revert` (roles are reconstructible from bundle assignments if ever needed).
+
+---
+
+## 9. Phase 8 — Guardrails, Verification, Documentation
+
+**Permanent guardrails (committed):**
+- `tests/Feature/PermissionBundlesTest.php` — snapshot-asserts each bundle's exact slug set and that built-ins ⊂ every bundle. A bundle change must change this test — deliberate friction.
+- `tests/Feature/RouteAuthorizationAuditTest.php` — walks `Route::getRoutes()`: every non-public web/api route must carry `auth` and either a `permission:`/`role:` middleware or be on the documented policy-checked allowlist. New unprotected routes fail CI.
+- CI step: `grep -rn "hasRole" app/ | grep -v AppServiceProvider` must be empty (the "code checks permissions only" invariant, enforced).
+
+**Full acceptance matrix (run per phase gate and at the end):**
+
+| Actor | Expected |
+|---|---|
+| Fresh `consumer` | dashboard + own devices + full own-meter dashboard + own alerts + rename-only edit; no create, no user pages, no system stats; direct API calls to forbidden endpoints → 403 |
+| `consumer` minus `meter.charts` (detached bundle) | KPI + table, no charts, no Chart.js download |
+| `prosumer` | + self-provision (meter-only, self-owned enforced server-side), edit/delete own |
+| `field_engineer` | all devices CRUD + assign owner; no user management, no fleet alerts |
+| `fleet_operator` | all devices read, system stats, fleet alert console, receives fleet-wide digests per prefs; no device writes |
+| `super_admin` | everything, permission screens for others, own permissions not editable |
+| Crafted requests | rename-mode PATCH with `mqtt_topic` → ignored; self-provision POST with `user_id` of another user → forced to self; section APIs without slug → 403 |
+| Pipeline regression | MQTT ingest → reading stored → alert opens → consumer owner gets digest; fleet operator gets digest iff `alerts.fleet_scope` + pref `all` |
+
+**Documentation updates (same commit as Phase 8):** handbook §8.1 rewritten for the
+hybrid; `PENDING_WORK.md` FGAC section closed out; `use-case.md` UC26 "Change User
+Role" → "Manage Permissions/Bundles", UC1 "Register" annotated with the D1 flag;
+`FGAC_FEATURES_PERMISSIONS.csv` updated with the `alerts.*` slugs and bundle column.
+
+---
+
+## 10. Risk Register
+
+| Risk | Mitigation |
+|---|---|
+| MySQL enum alter differs from SQLite tests | driver-branched migrations (§5 Phase 1); rehearse `migrate` against a MySQL staging copy before prod |
+| Spatie guard mismatch (web vs sanctum) breaks dashboard JS | seed every API-relevant slug in both guards; `statefulApi()` session path covered by feature tests hitting `/api/*` |
+| Stale permission cache after grant/revoke | `forgetCachedPermissions()` in `PermissionController::update()`; residual window is one in-flight request (v1 §11 assessment stands) |
+| Long-running processes (queue worker, MQTT consumer) run old code at cutover | deploy step: restart both (already standard practice per ops runbook) |
+| Seeder drift vs. this document | `PermissionBundlesTest` snapshot is the enforced source of truth |
+| Phase-5 regression | old middleware/column kept until Phase 7 → single-commit `git revert` restores prior enforcement |
+| Fat bundles recreate RBAC rigidity | lean-bundle rule + snapshot-test friction + direct grants for extras |
+
+---
+
+## 11. Definition of Done
+
+- [ ] All §2.1 role checks replaced by permission predicates; §2.2 inventory deleted
+- [ ] `grep hasRole` guardrail + route audit test + bundle snapshot test in CI, green
+- [ ] Full acceptance matrix (§9) passes in a browser and via crafted HTTP requests
+- [ ] `users.role` column dropped; Spatie tables are the only authority
+- [ ] Queue worker + MQTT consumer restarted on final deploy; alert pipeline regression verified end-to-end
+- [ ] Handbook, PENDING_WORK, use-case, CSV updated; this plan marked **implemented**
