@@ -15,6 +15,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        $this->call(TestUsersSeeder::class);
+        $this->call([
+            PermissionSeeder::class,
+            SuperAdminSeeder::class,
+            // MigrateRolesToPermissionsSeeder is a one-time production
+            // bridge — run it manually: php artisan db:seed --class=...
+            TestUsersSeeder::class,
+        ]);
     }
 }
