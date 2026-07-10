@@ -800,7 +800,9 @@
             </a>
         @else
             <a href="{{ route('login') }}"    class="nav-btn nav-ghost">Sign In</a>
-            <a href="{{ route('register') }}" class="nav-btn nav-primary">Get Started →</a>
+            @if (Route::has('register'))
+                <a href="{{ route('register') }}" class="nav-btn nav-primary">Get Started →</a>
+            @endif
         @endauth
     </div>
 </nav>
@@ -876,12 +878,14 @@
                 </a>
                 <a href="{{ route('devices.index') }}" class="btn-xl btn-ghost-xl">View My Devices →</a>
             @else
-                <a href="{{ route('register') }}" class="btn-xl btn-filled">
-                    Start for Free
-                    <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                    </svg>
-                </a>
+                @if (Route::has('register'))
+                    <a href="{{ route('register') }}" class="btn-xl btn-filled">
+                        Start for Free
+                        <svg width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                    </a>
+                @endif
                 <a href="{{ route('login') }}" class="btn-xl btn-ghost-xl">Sign In</a>
             @endauth
         </div>
@@ -1098,7 +1102,9 @@
                 <div class="cta-title">Ready to connect<br>your smart home?</div>
                 <p class="cta-sub">Set up your first device in under 5 minutes. No credit card required.</p>
                 <div class="cta-btns">
-                    <a href="{{ route('register') }}" class="btn-xl btn-filled">Create Free Account →</a>
+                    @if (Route::has('register'))
+                        <a href="{{ route('register') }}" class="btn-xl btn-filled">Create Free Account →</a>
+                    @endif
                     <a href="{{ route('login') }}"    class="btn-xl btn-ghost-xl">Sign In</a>
                 </div>
             @endauth
@@ -1121,7 +1127,9 @@
             <a href="{{ route('profile.edit') }}"  class="footer-link">Profile</a>
         @else
             <a href="{{ route('login') }}"    class="footer-link">Sign In</a>
-            <a href="{{ route('register') }}" class="footer-link">Register</a>
+            @if (Route::has('register'))
+                <a href="{{ route('register') }}" class="footer-link">Register</a>
+            @endif
         @endauth
     </nav>
 

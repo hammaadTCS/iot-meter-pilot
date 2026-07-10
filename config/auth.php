@@ -20,6 +20,21 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Self-Registration (FGAC plan, decision D1)
+    |--------------------------------------------------------------------------
+    |
+    | When true (self-serve B2C), /register is open and every new account
+    | is auto-assigned the `consumer` bundle. When false (invite-only),
+    | the register routes are not defined at all — links guarded by
+    | Route::has('register') disappear automatically. After changing the
+    | env value in production, rebuild caches (config:cache, route:cache).
+    |
+    */
+
+    'allow_registration' => env('AUTH_ALLOW_REGISTRATION', true),
+
+    /*
+    |--------------------------------------------------------------------------
     | Authentication Guards
     |--------------------------------------------------------------------------
     |

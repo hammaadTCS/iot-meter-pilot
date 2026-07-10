@@ -20,6 +20,10 @@ class RegisteredUserController extends Controller
      */
     public function create(): View
     {
+        // Defense in depth — the route only exists when the flag is on,
+        // but never rely on routing alone for an access decision.
+        abort_unless(config('auth.allow_registration'), 404);
+
         return view('auth.register');
     }
 
@@ -30,6 +34,8 @@ class RegisteredUserController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        abort_unless(config('auth.allow_registration'), 404);
+
         $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
@@ -47,6 +53,10 @@ class RegisteredUserController extends Controller
             'phone_number' => $request->phone_number,
             'address' => $request->address,
         ]);
+
+        // Self-serve accounts start as consumers: full own-meter dashboard,
+        // rename-only editing (docs/FGAC_IMPLEMENTATION_PLAN.md §3.2).
+        $user->assignRole('consumer');
 
         event(new Registered($user));
 
