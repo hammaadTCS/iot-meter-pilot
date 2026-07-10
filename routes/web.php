@@ -7,6 +7,7 @@ use App\Http\Controllers\DeviceManagementController;
 use App\Http\Controllers\MeterAlertSettingsController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\NotificationPreferenceController;
+use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\UserManagementController;
 use Illuminate\Support\Facades\Route;
@@ -63,6 +64,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::middleware('superadmin')->group(function () {
         Route::delete('/users/{user}',       [UserManagementController::class, 'destroy'])->name('users.destroy');
         Route::patch('/users/{user}/role',    [UserManagementController::class, 'updateRole'])->name('users.role');
+    });
+
+    // Access management (hybrid FGAC) — permission-gated: super admins pass
+    // via Gate::before; granting users.manage_permissions to anyone else is
+    // deliberate delegation of that authority.
+    Route::middleware('permission:users.manage_permissions')->group(function () {
+        Route::get('/users/{user}/permissions',   [PermissionController::class, 'show'])->name('users.permissions.show');
+        Route::patch('/users/{user}/permissions', [PermissionController::class, 'update'])->name('users.permissions.update');
+        Route::post('/users/{user}/permissions/detach-bundle', [PermissionController::class, 'detachBundle'])->name('users.permissions.detach');
     });
 });
 

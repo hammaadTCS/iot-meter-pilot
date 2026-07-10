@@ -23,13 +23,15 @@
                    class="w-full pl-9 pr-4 py-2.5 bg-iot-surface border border-iot-border rounded-xl text-sm text-iot-text
                           placeholder:text-iot-muted focus:outline-none focus:border-iot-accent focus:ring-1 focus:ring-iot-accent/50">
         </div>
-        <select name="role" onchange="this.form.submit()"
+        <select name="bundle" onchange="this.form.submit()"
                 class="px-4 py-2.5 bg-iot-surface border border-iot-border rounded-xl text-sm text-iot-text
                        focus:outline-none focus:border-iot-accent">
-            <option value="">All Roles</option>
-            <option value="super_admin" {{ request('role') === 'super_admin' ? 'selected' : '' }}>Super Admin</option>
-            <option value="admin"       {{ request('role') === 'admin'       ? 'selected' : '' }}>Admin</option>
-            <option value="user"        {{ request('role') === 'user'        ? 'selected' : '' }}>User</option>
+            <option value="">All Bundles</option>
+            <option value="consumer"       {{ request('bundle') === 'consumer'       ? 'selected' : '' }}>Consumer</option>
+            <option value="prosumer"       {{ request('bundle') === 'prosumer'       ? 'selected' : '' }}>Prosumer</option>
+            <option value="field_engineer" {{ request('bundle') === 'field_engineer' ? 'selected' : '' }}>Field Engineer</option>
+            <option value="fleet_operator" {{ request('bundle') === 'fleet_operator' ? 'selected' : '' }}>Fleet Operator</option>
+            <option value="super_admin"    {{ request('bundle') === 'super_admin'    ? 'selected' : '' }}>Super Admin</option>
         </select>
     </form>
 
@@ -40,7 +42,7 @@
                     <thead>
                         <tr class="bg-iot-surface2 border-b border-iot-border">
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">User</th>
-                            <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Role</th>
+                            <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Access</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted hidden md:table-cell">Devices</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted hidden lg:table-cell">Joined</th>
                             <th class="px-5 py-3.5 text-right font-mono text-[10px] uppercase tracking-widest text-iot-muted">Actions</th>
@@ -64,7 +66,14 @@
                                     </div>
                                 </td>
                                 <td class="px-5 py-4">
-                                    <x-role-badge :role="$user->role" />
+                                    <div class="flex items-center gap-1.5 flex-wrap">
+                                        @forelse($user->roles as $bundle)
+                                            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold
+                                                         bg-iot-accent/15 text-iot-accent border border-iot-accent/30">{{ $bundle->name }}</span>
+                                        @empty
+                                            <span class="text-[10px] text-iot-muted font-mono">direct only</span>
+                                        @endforelse
+                                    </div>
                                 </td>
                                 <td class="px-5 py-4 hidden md:table-cell">
                                     <span class="font-mono text-sm text-iot-text">{{ $user->devices->count() }}</span>
@@ -84,6 +93,15 @@
                                                   hover:text-white hover:bg-iot-surface2 transition-colors">
                                             Edit
                                         </a>
+                                        @can('users.manage_permissions')
+                                            @unless($user->hasRole('super_admin'))
+                                                <a href="{{ route('users.permissions.show', $user) }}"
+                                                   class="px-3 py-1.5 rounded-lg text-xs font-medium text-iot-accent border border-iot-accent/30
+                                                          hover:bg-iot-accent/10 transition-colors">
+                                                    Access
+                                                </a>
+                                            @endunless
+                                        @endcan
                                         @if(auth()->user()->isSuperAdmin() && !$user->isSuperAdmin())
                                             <form action="{{ route('users.destroy', $user) }}" method="POST"
                                                   onsubmit="return confirm('Delete {{ addslashes($user->name) }}? This cannot be undone.')">
