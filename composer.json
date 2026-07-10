@@ -12,7 +12,8 @@
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^2.10.1",
         "livewire/livewire": "^4.3",
-        "php-mqtt/laravel-client": "^1.7"
+        "php-mqtt/laravel-client": "^1.7",
+        "predis/predis": "^3.5"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
