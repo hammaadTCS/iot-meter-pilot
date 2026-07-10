@@ -15,13 +15,30 @@ composer setup      # composer install → copy .env → key:generate → migrat
 Then make sure `.env` has (you already do, since it was running):
 - `DB_CONNECTION=mysql` + `DB_HOST/DB_DATABASE/DB_USERNAME/DB_PASSWORD`
 - `QUEUE_CONNECTION=database`
+- `CACHE_STORE=redis` + `REDIS_CLIENT=predis` (Redis required since the FGAC phases — see below)
+- `SESSION_DRIVER=database`
+- `AUTH_ALLOW_REGISTRATION=true` (self-serve signups get the `consumer` bundle; `false` = invite-only)
 - `BROADCAST_CONNECTION=reverb` + the `REVERB_*` keys
 - your MQTT broker settings (see `config/mqtt-client.php` / `MQTT_*`)
 - `MAIL_MAILER=log` is fine if you don't want email (the bell doesn't need mail)
 
+### Redis (required — permission cache)
+
+Runs as a Docker container. First time:
+```bash
+docker run -d --name iot-redis --restart unless-stopped -p 127.0.0.1:6379:6379 redis:7-alpine
+```
+After a reboot it auto-starts (`--restart unless-stopped`); if stopped manually: `docker start iot-redis`.
+Health check: `docker exec iot-redis redis-cli ping` → `PONG`.
+
 After pulling changes that add migrations, re-run:
 ```bash
 php artisan migrate
+# permission catalog + bundles (idempotent, safe to re-run):
+php artisan db:seed --class=PermissionSeeder
+php artisan db:seed --class=SuperAdminSeeder
+# one-time bridge if your users still only have the legacy role column:
+php artisan db:seed --class=MigrateRolesToPermissionsSeeder
 # one-time, if you have historical readings and just added the rollups:
 php artisan meters:backfill-daily-consumption
 php artisan meters:backfill-monthly-consumption

@@ -312,6 +312,8 @@ by hand) and [package.json](package.json) (frontend build deps):
 | **PHP ^8.2 / Laravel 12** | language + framework | everything |
 | **laravel/breeze** | auth scaffolding (dev-dep) | generated the login/register/password-reset controllers and views under `Auth/` — they're normal app code now, committed and editable |
 | **laravel/sanctum** | API token auth | protects `/api/*`; browser JS calls the API using its session cookie via `statefulApi()` ([bootstrap/app.php:16](bootstrap/app.php#L16)) |
+| **spatie/laravel-permission** | roles & permissions | the hybrid FGAC system: permission slugs checked by code, roles used as admin-facing grant bundles (see §8.1) |
+| **predis/predis** | pure-PHP Redis client | permission-cache reads; Redis itself runs as the `iot-redis` Docker container (`CACHE_STORE=redis`) |
 | **php-mqtt/laravel-client** | MQTT client | the consumer command's connection to the broker; config in [config/mqtt-client.php](config/mqtt-client.php) |
 | **laravel/reverb** | first-party WebSocket server | pushes live events to browsers (notification bell; live meter events) |
 | **laravel-echo + pusher-js** (npm) | browser WebSocket client | [resources/js/echo.js](resources/js/echo.js) connects to Reverb |
@@ -399,7 +401,9 @@ iot-meter-pilot/
 ## 6. The database
 
 Twelve domain tables (plus framework tables: `sessions`, `cache`, `jobs`,
-`migrations`, `password_reset_tokens`, `personal_access_tokens`). A visual ERD
+`migrations`, `password_reset_tokens`, `personal_access_tokens`, and — since the
+FGAC phases — Spatie's five: `permissions`, `roles`, `model_has_permissions`,
+`model_has_roles`, `role_has_permissions`). A visual ERD
 already exists at [docs/erd.md](docs/erd.md); here is the annotated version:
 
 | Table | Model | One row means | Written by |
@@ -491,10 +495,20 @@ Three helper methods on [User.php:74-93](app/Models/User.php#L74-L93):
    and `AlertEvent::visibleTo($user)` ([AlertEvent.php scopeVisibleTo](app/Models/AlertEvent.php))
    filter by ownership unless the user is admin+.
 
-> **Planned next step (FGAC):** these role checks are the seams that a
-> fine-grained permission system will replace — the plan lives in
-> [docs/FGAC_IMPLEMENTATION_PLAN.md](docs/FGAC_IMPLEMENTATION_PLAN.md) with the
-> feature/permission matrix in [docs/FGAC_FEATURES_PERMISSIONS.csv](docs/FGAC_FEATURES_PERMISSIONS.csv).
+> **⚠️ Hybrid FGAC migration IN PROGRESS (2026-07-10, phases R,0–4 done):** the role
+> checks above still enforce everything, but a parallel permission system is now fully
+> populated alongside them — `spatie/laravel-permission` with a 29-slug catalog
+> ([PermissionSeeder](database/seeders/PermissionSeeder.php), the single source of
+> truth) and 5 **grant bundles** (consumer / prosumer / field_engineer /
+> fleet_operator / super_admin). Super admins manage per-user access at
+> `/users/{user}/permissions` ([PermissionController](app/Http/Controllers/PermissionController.php));
+> user create forms assign bundles, not roles; self-registration assigns `consumer`
+> (`AUTH_ALLOW_REGISTRATION`). A `Gate::before` bypass in
+> [AppServiceProvider](app/Providers/AppServiceProvider.php) makes `super_admin`
+> pass every check. The Phase 5 cutover will swap the legacy checks for `can()`
+> calls — plan + status ledger in
+> [docs/FGAC_IMPLEMENTATION_PLAN.md](docs/FGAC_IMPLEMENTATION_PLAN.md), matrix in
+> [docs/FGAC_FEATURES_PERMISSIONS.csv](docs/FGAC_FEATURES_PERMISSIONS.csv).
 
 **User management screens** — [UserManagementController](app/Http/Controllers/UserManagementController.php)
 + views in [resources/views/users/](resources/views/users/). **Profile** —
@@ -825,6 +839,8 @@ touch:
 | `MQTT_RETRY_DELAY` / `MQTT_RETRY_MAX_DELAY` | consumer reconnect backoff bounds |
 | `METER_HEALTH_STALE_AFTER_SECONDS` (180) / `METER_HEALTH_DOWN_AFTER_SECONDS` (600) | when a silent meter counts as stale/down — feeds both UI badges and alerts |
 | `QUEUE_CONNECTION=database` | queued jobs stored in the `jobs` table |
+| `CACHE_STORE=redis`, `REDIS_CLIENT=predis`, `REDIS_HOST/PORT` | permission cache (Docker container `iot-redis`); `SESSION_DRIVER=database` |
+| `AUTH_ALLOW_REGISTRATION` (true) | self-serve signup (new accounts get the `consumer` bundle) vs invite-only 404 |
 | `BROADCAST_CONNECTION=reverb`, `REVERB_*`, `VITE_REVERB_*` | WebSockets (the `VITE_` copies are compiled into browser JS) |
 | `MAIL_*` | email transport (`log` in dev) |
 

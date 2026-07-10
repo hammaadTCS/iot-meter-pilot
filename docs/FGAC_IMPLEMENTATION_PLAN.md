@@ -33,11 +33,57 @@ changes. Only two authorization *predicates* in the alert pipeline are swapped
 
 ---
 
+## Status Ledger
+
+| Phase | Status | Commit | Date |
+|---|---|---|---|
+| R — Repository hygiene | ✅ DONE | `c812e7f` | 2026-07-10 |
+| 0 — Redis cache + env dedupe | ✅ DONE | `559655c` | 2026-07-10 |
+| 1 — Spatie install + Gate::before | ✅ DONE | `6e1ca32` | 2026-07-10 |
+| 2 — Catalog, bundles, user migration | ✅ DONE | `6291f4a` | 2026-07-10 |
+| 3 — Registration mode (D1) | ✅ DONE | `f6aa88e` | 2026-07-10 |
+| 4 — Access management UI | ✅ DONE | `396258f` | 2026-07-10 |
+| 5 — Enforcement cutover | ⏳ NEXT (awaiting browser review of Phase 4) | | |
+| 6 — View cutover | pending | | |
+| 7 — Legacy removal | pending | | |
+| 8 — Guardrails + docs | pending | | |
+
+**Current runtime state:** both systems coexist; the legacy role checks still enforce
+everything, while bundles/permissions are fully populated and managed via the new
+`/users/{user}/permissions` screen. App behavior is unchanged for end users. Suite: 161 green.
+
+**Deviations from plan, decided during implementation (all deliberate):**
+
+1. **Guards (§3.1):** permissions are seeded in the `web` guard **only**, not duplicated
+   into `sanctum`. Spatie resolves the guard from the User model's default guard (`web`)
+   for session, stateful-API and token requests alike — duplicate rows would add
+   confusion, not safety. Phase 5's API tests must prove this holds.
+2. **Redis (Phase 0):** no system Redis existed (v1's claim was wrong). Runs as Docker
+   container `iot-redis` (redis:7-alpine, localhost-only) with the pure-PHP `predis`
+   client (`REDIS_CLIENT=predis`) — no PHP extension needed. `.env` also had
+   `CACHE_STORE`/`SESSION_DRIVER` defined 3× each (last-one-wins); deduplicated.
+3. **Legacy role column:** new accounts keep the column's DB default `'user'` rather
+   than NULL — legacy code paths always see a valid enum until Phase 7 drops the column.
+   Bundles are the access authority for these accounts.
+4. **Phase 4 pulled a slice of Phase 6 forward:** users index/show/edit already display
+   bundle chips instead of the role badge, and the list filter is by bundle — the role
+   badge would have shown wrong data for bundle-only accounts.
+5. **Test seeding:** the permission catalog is seeded per-test in `TestCase::setUp()`,
+   NOT via `afterRefreshingDatabase()` — the RefreshDatabase trait ships an empty stub
+   of that hook which takes precedence over a parent-class override and silently
+   disables it. Suite duration ~6.5s → ~11s (catalog seeded per test).
+6. **Known trade-off until Phase 5:** an account created now with `field_engineer` /
+   `fleet_operator` bundles cannot exercise those powers yet — the legacy `admin`
+   middleware still guards those routes and reads the role column. Resolved by the
+   Phase 5 cutover.
+
+---
+
 ## 1. Decisions Locked Before Work Starts
 
 | # | Decision | Resolution |
 |---|---|---|
-| **D1** | Self-registration (B2C scope says yes; v1 plan said no) | Config flag `auth.allow_registration` (env `AUTH_ALLOW_REGISTRATION`, **default `false`** per the documented business model). When `true`, registration auto-assigns the `consumer` bundle. Flipping the business decision later is one env change, zero code. |
+| **D1** | Self-registration (B2C scope says yes; v1 plan said no) | **RESOLVED 2026-07-10: self-serve B2C.** Config flag `auth.allow_registration` (env `AUTH_ALLOW_REGISTRATION`, **default `true`**); registration auto-assigns the `consumer` bundle. Flipping to invite-only is one env change (routes vanish, links hide via `Route::has('register')`, controller keeps an `abort_unless` as defense in depth). |
 | **D2** | Migration is **deliberately not behavior-preserving** for regular users | Today a `user` can create devices and fully edit/delete their own ([DeviceManagementController.php:45-59](../app/Http/Controllers/DeviceManagementController.php#L45-L59)). Post-migration, `consumer` has rename-only + no create. This tightening is the point of the project (v1 §1). Users needing the old power get the `prosumer` bundle — a one-click re-grant. Communicate before cutover. |
 | **D3** | Old `admin` role maps to | `field_engineer` + `fleet_operator` bundles (composable — Spatie allows multiple roles per user). |
 | **D4** | Doc/file hygiene | Legacy root scratch files removed in Phase R (§4). Docs stay at 10 files: this plan replaces v1 in place. |
@@ -84,7 +130,9 @@ changes. Only two authorization *predicates* in the alert pipeline are swapped
 
 ### 3.1 Permission catalog (single source of truth = `PermissionSeeder`)
 
-All slugs created in **both guards** (`web`, `sanctum`) where API-relevant.
+All slugs live in the **`web` guard only** (see Status Ledger, deviation 1): Spatie
+resolves the guard from the User model's default guard, so session, stateful-API and
+Sanctum-token requests all check the same set.
 
 **Built-in (member of every bundle — a user always holds ≥ these):**
 
