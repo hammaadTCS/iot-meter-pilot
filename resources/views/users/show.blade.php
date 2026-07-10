@@ -36,7 +36,14 @@
                     </div>
                     <div>
                         <h2 class="font-semibold text-white">{{ $user->name }}</h2>
-                        <x-role-badge :role="$user->role" />
+                        <div class="flex items-center gap-1.5 flex-wrap mt-0.5">
+                            @forelse($user->roles as $bundle)
+                                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold
+                                             bg-iot-accent/15 text-iot-accent border border-iot-accent/30">{{ $bundle->name }}</span>
+                            @empty
+                                <span class="text-[10px] text-iot-muted font-mono">direct grants only</span>
+                            @endforelse
+                        </div>
                     </div>
                 </div>
 
@@ -69,28 +76,19 @@
                     </div>
                 </div>
 
-                {{-- Role change (super admin only) --}}
-                @if(auth()->user()->isSuperAdmin())
-                    <div class="border-t border-iot-border pt-4">
-                        <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted mb-3">Change Role</p>
-                        <form action="{{ route('users.role', $user) }}" method="POST" class="flex gap-2">
-                            @csrf
-                            @method('PATCH')
-                            <select name="role"
-                                class="flex-1 px-3 py-2 bg-iot-surface2 border border-iot-border rounded-xl text-sm text-iot-text
-                                       focus:outline-none focus:border-iot-accent">
-                                <option value="user"        {{ $user->role === 'user'        ? 'selected' : '' }}>User</option>
-                                <option value="admin"       {{ $user->role === 'admin'       ? 'selected' : '' }}>Admin</option>
-                                <option value="super_admin" {{ $user->role === 'super_admin' ? 'selected' : '' }}>Super Admin</option>
-                            </select>
-                            <button type="submit"
-                                    class="px-3 py-2 rounded-xl text-sm font-medium bg-iot-accent/10 text-iot-accent border border-iot-accent/20
-                                           hover:bg-iot-accent/20 transition-colors whitespace-nowrap">
-                                Update
-                            </button>
-                        </form>
-                    </div>
-                @endif
+                {{-- Access management --}}
+                @can('users.manage_permissions')
+                    @unless($user->hasRole('super_admin'))
+                        <div class="border-t border-iot-border pt-4">
+                            <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted mb-3">Access</p>
+                            <a href="{{ route('users.permissions.show', $user) }}"
+                               class="inline-block px-3 py-2 rounded-xl text-sm font-medium bg-iot-accent/10 text-iot-accent
+                                      border border-iot-accent/20 hover:bg-iot-accent/20 transition-colors">
+                                Manage Access
+                            </a>
+                        </div>
+                    @endunless
+                @endcan
             </div>
         </div>
 

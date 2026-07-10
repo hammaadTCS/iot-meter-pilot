@@ -37,18 +37,18 @@
                     </div>
 
                     <div>
-                        <x-input-label for="role" value="Role" />
-                        <select id="role" name="role"
+                        <x-input-label for="bundle" value="Access Bundle" />
+                        <select id="bundle" name="bundle"
                             class="w-full px-4 py-2.5 bg-iot-surface2 border border-iot-border rounded-xl text-iot-text text-sm
                                    focus:outline-none focus:border-iot-accent focus:ring-1 focus:ring-iot-accent/50
-                                   @error('role') border-iot-red @enderror">
-                            <option value="user"  {{ old('role', 'user') === 'user'  ? 'selected' : '' }}>User</option>
-                            <option value="admin" {{ old('role') === 'admin' ? 'selected' : '' }}>Admin</option>
-                            @if(auth()->user()->isSuperAdmin())
-                                <option value="super_admin" {{ old('role') === 'super_admin' ? 'selected' : '' }}>Super Admin</option>
-                            @endif
+                                   @error('bundle') border-iot-red @enderror">
+                            <option value="consumer"       {{ old('bundle', 'consumer') === 'consumer'   ? 'selected' : '' }}>Consumer — own-meter dashboard, rename only</option>
+                            <option value="prosumer"       {{ old('bundle') === 'prosumer'       ? 'selected' : '' }}>Prosumer — consumer + self-provision &amp; edit own meters</option>
+                            <option value="field_engineer" {{ old('bundle') === 'field_engineer' ? 'selected' : '' }}>Field Engineer — create/edit/assign any device</option>
+                            <option value="fleet_operator" {{ old('bundle') === 'fleet_operator' ? 'selected' : '' }}>Fleet Operator — fleet visibility, stats &amp; alerts</option>
                         </select>
-                        <x-input-error :messages="$errors->get('role')" />
+                        <p class="text-xs text-iot-muted mt-1">Fine-tune individual permissions afterwards from the user's Manage Access screen.</p>
+                        <x-input-error :messages="$errors->get('bundle')" />
                     </div>
                 </div>
 

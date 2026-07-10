@@ -24,29 +24,23 @@
                         <x-input-error :messages="$errors->get('email')" />
                     </div>
 
-                    @if(auth()->user()->isSuperAdmin())
-                        <div>
-                            <x-input-label for="role" value="Role" />
-                            <select id="role" name="role"
-                                class="w-full px-4 py-2.5 bg-iot-surface2 border border-iot-border rounded-xl text-iot-text text-sm
-                                       focus:outline-none focus:border-iot-accent focus:ring-1 focus:ring-iot-accent/50
-                                       @error('role') border-iot-red @enderror">
-                                <option value="user"        {{ old('role', $user->role) === 'user'        ? 'selected' : '' }}>User</option>
-                                <option value="admin"       {{ old('role', $user->role) === 'admin'       ? 'selected' : '' }}>Admin</option>
-                                <option value="super_admin" {{ old('role', $user->role) === 'super_admin' ? 'selected' : '' }}>Super Admin</option>
-                            </select>
-                            <p class="text-xs text-iot-amber mt-1">Role changes take effect on the user's next login.</p>
-                            <x-input-error :messages="$errors->get('role')" />
+                    <div>
+                        <x-input-label value="Access" />
+                        <div class="mt-1 flex items-center gap-2 flex-wrap">
+                            @forelse($user->roles as $bundle)
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-mono font-bold
+                                             bg-iot-accent/15 text-iot-accent border border-iot-accent/30">{{ $bundle->name }}</span>
+                            @empty
+                                <span class="text-xs text-iot-muted">No bundles — direct grants only</span>
+                            @endforelse
+                            @can('users.manage_permissions')
+                                @unless($user->hasRole('super_admin'))
+                                    <a href="{{ route('users.permissions.show', $user) }}"
+                                       class="text-xs text-iot-accent hover:text-iot-accent/80 transition-colors">Manage Access →</a>
+                                @endunless
+                            @endcan
                         </div>
-                    @else
-                        <div>
-                            <x-input-label value="Role" />
-                            <div class="mt-1">
-                                <x-role-badge :role="$user->role" />
-                                <span class="text-xs text-iot-muted ml-2">Only super admins can change roles</span>
-                            </div>
-                        </div>
-                    @endif
+                    </div>
                 </div>
 
                 <div class="space-y-4">

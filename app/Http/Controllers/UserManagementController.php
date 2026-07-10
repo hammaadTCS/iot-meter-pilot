@@ -23,11 +23,12 @@ class UserManagementController extends Controller
             });
         }
 
-        if ($role = $request->get('role')) {
-            $query->where('role', $role);
+        if ($bundle = $request->get('bundle')) {
+            $query->whereHas('roles', fn ($q) => $q->where('name', $bundle));
         }
 
-        $users = $query->paginate(20)->withQueryString();
+        // Eager-load bundles for the list's access column.
+        $users = $query->with('roles')->paginate(20)->withQueryString();
 
         return view('users.index', compact('users'));
     }
@@ -39,22 +40,25 @@ class UserManagementController extends Controller
 
     public function store(Request $request): RedirectResponse
     {
-        $authUser = Auth::user();
-        $roleOptions = $authUser->isSuperAdmin() ? 'in:user,admin,super_admin' : 'in:user,admin';
-
         $validated = $request->validate([
             'name'                  => ['required', 'string', 'max:255'],
             'email'                 => ['required', 'email', 'unique:users,email'],
             'password'              => ['required', 'string', 'min:8', 'confirmed'],
-            'role'                  => ['required', $roleOptions],
+            // Grant bundle, not legacy role. super_admin is deliberately
+            // not creatable from any screen — promote via CLI only.
+            'bundle'                => ['required', Rule::in(['consumer', 'prosumer', 'field_engineer', 'fleet_operator'])],
             'cnic'                  => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
             'phone_number'          => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'address'               => ['nullable', 'string', 'max:500'],
         ]);
 
+        $bundle = $validated['bundle'];
+        unset($validated['bundle']);
         $validated['password'] = Hash::make($validated['password']);
 
-        User::create($validated);
+        // The legacy role column stays NULL — bundles are the authority
+        // for accounts created after the hybrid cutover.
+        User::create($validated)->assignRole($bundle);
 
         return redirect()->route('users.index')
             ->with('success', 'User created successfully.');
@@ -76,27 +80,15 @@ class UserManagementController extends Controller
 
     public function update(Request $request, User $user): RedirectResponse
     {
-        $authUser = Auth::user();
-        $roleOptions = $authUser->isSuperAdmin() ? 'in:user,admin,super_admin' : 'in:user,admin';
-
-        $rules = [
+        // Access is managed on the permissions screen, not here — this
+        // endpoint only edits profile fields and ignores any role input.
+        $validated = $request->validate([
             'name'         => ['required', 'string', 'max:255'],
             'email'        => ['required', 'email', Rule::unique('users')->ignore($user->id)],
             'cnic'         => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
             'phone_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
             'address'      => ['nullable', 'string', 'max:500'],
-        ];
-
-        if ($authUser->isSuperAdmin()) {
-            $rules['role'] = ['sometimes', $roleOptions];
-        }
-
-        $validated = $request->validate($rules);
-
-        // Admins cannot change role
-        if (!$authUser->isSuperAdmin()) {
-            unset($validated['role']);
-        }
+        ]);
 
         $user->update($validated);
 
