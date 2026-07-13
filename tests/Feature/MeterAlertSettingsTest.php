@@ -22,7 +22,7 @@ class MeterAlertSettingsTest extends TestCase
     public function test_owner_can_view_and_save_settings(): void
     {
         $this->withoutVite();
-        $owner = User::factory()->create(['role' => 'user']);
+        $owner = User::factory()->consumer()->create();
         $meter = $this->meterFor($owner);
         $this->actingAs($owner);
 
@@ -59,8 +59,8 @@ class MeterAlertSettingsTest extends TestCase
     public function test_a_non_owner_is_forbidden(): void
     {
         $this->withoutVite();
-        $meter = $this->meterFor(User::factory()->create(['role' => 'user']));
-        $this->actingAs(User::factory()->create(['role' => 'user']));
+        $meter = $this->meterFor(User::factory()->consumer()->create());
+        $this->actingAs(User::factory()->consumer()->create());
 
         $this->get("/devices/{$meter->id}/alerts")->assertForbidden();
         $this->patch("/devices/{$meter->id}/alerts", ['monthly_budget_warn_pct' => 80, 'anomaly_multiplier' => 2])

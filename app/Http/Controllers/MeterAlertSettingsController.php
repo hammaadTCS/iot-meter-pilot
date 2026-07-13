@@ -11,8 +11,12 @@ use Illuminate\View\View;
 
 /**
  * Per-meter, opt-in alert configuration — the toggles and thresholds a user
- * chooses for one meter. Authorized like editing the device itself (owner or
- * admin) via DevicePolicy::update.
+ * chooses for one meter.
+ *
+ * Authorization (hybrid FGAC): alerts.settings_own (built-in) for the owner,
+ * or devices.edit_any for fleet staff. Deliberately NOT DevicePolicy::update —
+ * configuring alert triggers is a different capability from editing the
+ * device's identity/topics, and must survive e.g. revoking meter.rename.
  */
 class MeterAlertSettingsController extends Controller
 {
@@ -20,7 +24,7 @@ class MeterAlertSettingsController extends Controller
 
     public function edit(Device $device): View
     {
-        $this->authorize('update', $device);
+        $this->authorizeAlertSettings($device);
 
         return view('devices.alerts', [
             'device'   => $device,
@@ -30,7 +34,7 @@ class MeterAlertSettingsController extends Controller
 
     public function update(Request $request, Device $device): RedirectResponse
     {
-        $this->authorize('update', $device);
+        $this->authorizeAlertSettings($device);
 
         $validated = $request->validate([
             'monthly_budget_kwh'      => ['nullable', 'numeric', 'min:0'],
@@ -62,5 +66,19 @@ class MeterAlertSettingsController extends Controller
         );
 
         return back()->with('status', 'alert-settings-updated');
+    }
+
+    /**
+     * Owner with the built-in alerts.settings_own slug, or fleet staff with
+     * devices.edit_any. (Gate::before already admitted super admins.)
+     */
+    private function authorizeAlertSettings(Device $device): void
+    {
+        $user = request()->user();
+
+        $allowed = $user->can('devices.edit_any')
+            || ($user->can('alerts.settings_own') && $user->id === $device->user_id);
+
+        abort_unless($allowed, 403, 'Missing alert-settings permission for this device.');
     }
 }

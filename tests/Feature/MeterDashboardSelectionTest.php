@@ -20,7 +20,7 @@ class MeterDashboardSelectionTest extends TestCase
         parent::setUp();
 
         $this->withoutVite();
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->consumer()->create();
         $this->actingAs($this->user);
     }
 
@@ -60,7 +60,7 @@ class MeterDashboardSelectionTest extends TestCase
 
     public function test_dashboard_requires_device_to_be_accessible_by_user(): void
     {
-        $otherUser = User::factory()->create();
+        $otherUser = User::factory()->consumer()->create();
         $otherMeter = $this->createMeter([
             'code'    => 'meter-other',
             'name'    => 'Other User Meter',

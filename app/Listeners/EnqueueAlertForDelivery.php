@@ -7,6 +7,7 @@ use App\Events\AlertResolved;
 use App\Models\AlertEvent;
 use App\Models\NotificationPreference;
 use App\Models\PendingAlertNotification;
+use App\Models\User;
 use Illuminate\Contracts\Queue\ShouldQueue;
 
 /**
@@ -56,9 +57,14 @@ class EnqueueAlertForDelivery implements ShouldQueue
             $ids[] = (int) $alert->device->user_id;
         }
 
-        // Fleet operators who opted in and whose severity floor this alert meets.
+        // Fleet operators: must hold alerts.fleet_scope (bundle or direct),
+        // have opted in (fleet_scope = 'all'), and meet the severity floor.
+        // Runs in the queue worker — one indexed join, never on a request.
+        $permittedIds = User::permission('alerts.fleet_scope')->pluck('id');
+
         NotificationPreference::query()
             ->where('fleet_scope', 'all')
+            ->whereIn('user_id', $permittedIds)
             ->get()
             ->each(function (NotificationPreference $pref) use ($alert, &$ids) {
                 if ($pref->allowsSeverity($alert->severity)) {

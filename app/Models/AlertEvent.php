@@ -44,15 +44,18 @@ class AlertEvent extends Model
     }
 
     /**
-     * Visibility scope — mirrors device visibility, so the alerts console shows a
-     * user only their own devices' alerts and an admin the whole fleet. This is
-     * the single seam FGAC (Part 3) later swaps from role checks to
-     * alerts.view_any / alerts.view_own without touching callers.
+     * Visibility scope — mirrors device visibility: alerts.view_any sees the
+     * whole fleet, alerts.view_own (built-in) sees own devices' alerts only.
+     * This was the seam left for FGAC; swapped to permissions 2026-07-10.
      */
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->isAdminOrAbove()) {
+        if ($user->can('alerts.view_any')) {
             return $query;
+        }
+
+        if (! $user->can('alerts.view_own')) {
+            return $query->whereRaw('1 = 0'); // fully stripped account sees nothing
         }
 
         return $query->whereHas('device', fn (Builder $q) => $q->where('user_id', $user->id));

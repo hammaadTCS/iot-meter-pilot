@@ -40,23 +40,28 @@ Route::get('/health', function () {
     return response()->json(['status' => 'ok']);
 });
 
-// Protected routes requiring authentication
+// Protected routes requiring authentication. Permission slugs (hybrid FGAC):
+// api.devices.read / api.readings.read are built-ins every bundle carries;
+// api.devices.write is a separate grant (field_engineer, or direct).
+// Ownership scoping and the meter.* section checks live in the controllers.
 Route::middleware('auth:sanctum')->group(function () {
     // Device Management
-    Route::get('/devices', [DeviceController::class, 'index']);
-    Route::post('/devices', [DeviceController::class, 'store']);
-    Route::get('/devices/{device}', [DeviceController::class, 'show']);
-    Route::get('/devices/{device}/status', [DeviceController::class, 'status']);
-    Route::delete('/devices/{device}', [DeviceController::class, 'destroy']);
+    Route::get('/devices', [DeviceController::class, 'index'])->middleware('permission:api.devices.read');
+    Route::post('/devices', [DeviceController::class, 'store'])->middleware('permission:api.devices.write');
+    Route::get('/devices/{device}', [DeviceController::class, 'show'])->middleware('permission:api.devices.read');
+    Route::get('/devices/{device}/status', [DeviceController::class, 'status'])->middleware('permission:api.devices.read');
+    Route::delete('/devices/{device}', [DeviceController::class, 'destroy'])->middleware('permission:api.devices.write');
 
     // Device Readings — the named sub-routes must be registered before the base
     // readings route so Laravel doesn't resolve "chart"/"consumption" as a
     // {device} parameter. Consumption is throttled (it can scan a window).
-    Route::get('/devices/{device}/readings/consumption', [DeviceReadingController::class, 'consumption'])
-        ->middleware('throttle:120,1');
-    Route::get('/devices/{device}/consumption/daily', [DeviceReadingController::class, 'dailyConsumption'])
-        ->middleware('throttle:60,1'); // per-day units + monthly total report (aggregates only)
-    Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart']);
-    Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index']);
-    Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings']);
+    Route::middleware('permission:api.readings.read')->group(function () {
+        Route::get('/devices/{device}/readings/consumption', [DeviceReadingController::class, 'consumption'])
+            ->middleware('throttle:120,1');
+        Route::get('/devices/{device}/consumption/daily', [DeviceReadingController::class, 'dailyConsumption'])
+            ->middleware('throttle:60,1'); // per-day units + monthly total report (aggregates only)
+        Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart']);
+        Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index']);
+        Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings']);
+    });
 });

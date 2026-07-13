@@ -28,7 +28,7 @@ class MeterDashboardUnitsTest extends TestCase
         parent::setUp();
 
         $this->withoutVite();
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->consumer()->create();
         $this->actingAs($this->user);
     }
 

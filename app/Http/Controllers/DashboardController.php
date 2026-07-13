@@ -17,7 +17,7 @@ class DashboardController extends Controller
         $myActiveCount  = Device::where('user_id', $user->id)->where('is_active', true)->count();
 
         $systemStats = null;
-        if ($user->isAdminOrAbove()) {
+        if ($user->can('dashboard.view_system_stats')) {
             $systemStats = [
                 'total_users'    => User::count(),
                 'total_devices'  => Device::count(),
@@ -34,7 +34,7 @@ class DashboardController extends Controller
         // meters; for other device types the relation is simply null and the
         // card falls back to its identity-only layout.
         $query = Device::with(['user', 'latestState'])->orderByDesc('last_seen_at');
-        if (!$user->isAdminOrAbove()) {
+        if (! $user->can('devices.view_any')) {
             $query->where('user_id', $user->id);
         }
         $recentDevices = $query->limit(8)->get();

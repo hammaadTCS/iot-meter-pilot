@@ -1,12 +1,14 @@
 <x-app-layout>
     <x-page-header :title="$device->name">
         <x-slot name="actions">
-            <a href="{{ route('devices.edit', $device) }}"
-               class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
-                      bg-iot-surface2 text-iot-muted border border-iot-border
-                      hover:text-white hover:bg-iot-border transition-colors">
-                Manage Device
-            </a>
+            @can('update', $device)
+                <a href="{{ route('devices.edit', $device) }}"
+                   class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+                          bg-iot-surface2 text-iot-muted border border-iot-border
+                          hover:text-white hover:bg-iot-border transition-colors">
+                    Manage Device
+                </a>
+            @endcan
         </x-slot>
     </x-page-header>
 
@@ -37,6 +39,11 @@
 
         @if(isset($reason) && $reason === 'disabled')
             <p class="text-iot-amber text-sm mb-6">This device is currently disabled. Enable it to start monitoring.</p>
+        @elseif(isset($reason) && $reason === 'no_access')
+            <p class="text-iot-amber text-sm mb-6">
+                Your account does not have access to the meter system.
+                Ask your administrator to grant it from your access settings.
+            </p>
         @else
             <p class="text-iot-muted text-sm mb-6">
                 Live dashboard for <strong class="text-iot-text">{{ str_replace('_', ' ', $device->type) }}</strong> devices is coming soon.<br>

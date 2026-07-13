@@ -148,25 +148,25 @@ class AuthenticationTest extends TestCase
         $this->assertTrue(Device::find($user2Device->id)->exists);
     }
 
-    public function test_user_can_create_device_assigned_to_themselves(): void
+    public function test_consumer_cannot_create_devices_via_api(): void
     {
+        // Hybrid FGAC decision D2: consumers no longer create devices —
+        // API writes additionally require api.devices.write. Field-engineer
+        // creation is covered in DeviceManagementApiTest; web self-provision
+        // (prosumer) in MeterSectionPermissionsTest.
         $user1 = User::where('email', 'user1@test.local')->first();
 
-        $response = $this->actingAs($user1)
+        $this->actingAs($user1)
             ->postJson('/api/devices', [
                 'code' => 'TEST_METER_001',
                 'name' => 'Test Meter',
                 'type' => 'meter',
                 'mqtt_topic' => 'test/meter/001',
                 'is_active' => true,
-            ]);
+            ])
+            ->assertForbidden();
 
-        $response->assertStatus(201);
-        $createdDevice = $response->json();
-
-        // Verify device belongs to user1
-        $this->assertEquals($user1->id, $createdDevice['user_id']);
-        $this->assertEquals('TEST_METER_001', $createdDevice['code']);
+        $this->assertDatabaseMissing('devices', ['code' => 'TEST_METER_001']);
     }
 
     public function test_unauthenticated_user_cannot_access_api(): void

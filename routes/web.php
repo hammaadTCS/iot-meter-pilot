@@ -50,20 +50,22 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Backward-compat redirect — remove in Phase 6
     Route::get('/devices/manage', fn() => redirect()->route('devices.index'))->name('devices.manage');
 
-    // User Management — admin+ only
-    Route::middleware('admin')->prefix('users')->name('users.')->group(function () {
+    // User Management — permission-gated (hybrid FGAC): view_list opens the
+    // area, create/edit/profile need their own slugs. Super admins pass
+    // everything via Gate::before.
+    Route::middleware('permission:users.view_list')->prefix('users')->name('users.')->group(function () {
         Route::get('/',              [UserManagementController::class, 'index'])->name('index');
-        Route::get('/create',        [UserManagementController::class, 'create'])->name('create');
-        Route::post('/',             [UserManagementController::class, 'store'])->name('store');
-        Route::get('/{user}',        [UserManagementController::class, 'show'])->name('show');
-        Route::get('/{user}/edit',   [UserManagementController::class, 'edit'])->name('edit');
-        Route::patch('/{user}',      [UserManagementController::class, 'update'])->name('update');
+        Route::get('/create',        [UserManagementController::class, 'create'])->name('create')->middleware('permission:users.create');
+        Route::post('/',             [UserManagementController::class, 'store'])->name('store')->middleware('permission:users.create');
+        Route::get('/{user}',        [UserManagementController::class, 'show'])->name('show')->middleware('permission:users.view_profile');
+        Route::get('/{user}/edit',   [UserManagementController::class, 'edit'])->name('edit')->middleware('permission:users.edit');
+        Route::patch('/{user}',      [UserManagementController::class, 'update'])->name('update')->middleware('permission:users.edit');
     });
 
-    // Super admin only
-    Route::middleware('superadmin')->group(function () {
-        Route::delete('/users/{user}',       [UserManagementController::class, 'destroy'])->name('users.destroy');
-        Route::patch('/users/{user}/role',    [UserManagementController::class, 'updateRole'])->name('users.role');
+    // Account deletion stays super-admin only (plan: users.delete is never
+    // delegated).
+    Route::middleware('role:super_admin')->group(function () {
+        Route::delete('/users/{user}', [UserManagementController::class, 'destroy'])->name('users.destroy');
     });
 
     // Access management (hybrid FGAC) — permission-gated: super admins pass

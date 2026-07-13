@@ -27,7 +27,7 @@ class DailyConsumptionReportTest extends TestCase
         parent::setUp();
 
         Carbon::setTestNow('2026-06-30 12:00:00');
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->consumer()->create();
         $this->actingAs($this->user, 'sanctum');
     }
 
@@ -94,7 +94,7 @@ class DailyConsumptionReportTest extends TestCase
 
     public function test_forbids_a_non_owner(): void
     {
-        $device = $this->createMeter(User::factory()->create());
+        $device = $this->createMeter(User::factory()->consumer()->create());
 
         $this->getJson("/api/devices/{$device->id}/consumption/daily")
             ->assertForbidden();
