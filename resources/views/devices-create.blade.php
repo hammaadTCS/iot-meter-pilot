@@ -1,13 +1,16 @@
 <x-app-layout>
-    <x-page-header title="Add Device" subtitle="Register a new IoT device to your smart home." />
+    <x-page-header title="Add Device"
+        :subtitle="($selfProvisionOnly ?? false)
+            ? 'Register your own meter. It will be linked to your account.'
+            : 'Register a new IoT device to your smart home.'" />
 
     <div class="max-w-2xl">
         <div class="bg-iot-surface border border-iot-border rounded-2xl p-6 sm:p-8">
             <form action="{{ route('devices.store') }}" method="POST" class="space-y-5">
                 @csrf
 
-                {{-- Admin: assign to user --}}
-                @if(auth()->user()->isAdminOrAbove())
+                {{-- Owner assignment — requires devices.assign_owner --}}
+                @if(auth()->user()->can('devices.assign_owner') && ! ($selfProvisionOnly ?? false))
                     <div>
                         <label for="user_id" class="block font-mono text-xs uppercase tracking-widest text-iot-muted mb-2">
                             Assign To User <span class="text-iot-red">*</span>
@@ -20,7 +23,7 @@
                             <option value="">— Select User —</option>
                             @foreach($users as $u)
                                 <option value="{{ $u->id }}" {{ old('user_id') == $u->id ? 'selected' : '' }}>
-                                    {{ $u->name }} ({{ $u->email }}) — {{ $u->role }}
+                                    {{ $u->name }} ({{ $u->email }})
                                 </option>
                             @endforeach
                         </select>
@@ -66,6 +69,14 @@
                     <label for="type" class="block font-mono text-xs uppercase tracking-widest text-iot-muted mb-2">
                         Device Type <span class="text-iot-red">*</span>
                     </label>
+                    @if($selfProvisionOnly ?? false)
+                        {{-- Self-provision (meter.self_provision without devices.create):
+                             type is locked to Meter — the server rejects anything else. --}}
+                        <input type="hidden" name="type" value="meter">
+                        <div class="w-full px-4 py-2.5 bg-iot-surface2/50 border border-iot-border rounded-xl text-iot-muted text-sm">
+                            ⚡ Meter <span class="text-[10px] uppercase tracking-widest ml-2">(locked)</span>
+                        </div>
+                    @else
                     <select id="type" name="type"
                         class="w-full px-4 py-2.5 bg-iot-surface2 border border-iot-border rounded-xl text-iot-text text-sm
                                focus:outline-none focus:border-iot-accent focus:ring-1 focus:ring-iot-accent/50
@@ -79,6 +90,7 @@
                         <option value="thermostat" {{ old('type') === 'thermostat' ? 'selected' : '' }}>🌡️ Thermostat</option>
                         <option value="lock"       {{ old('type') === 'lock'       ? 'selected' : '' }}>🔒 Lock</option>
                     </select>
+                    @endif
                     @error('type')
                         <p class="text-iot-red text-xs mt-1">{{ $message }}</p>
                     @enderror

@@ -71,6 +71,38 @@ class MeterSectionPermissionsTest extends TestCase
         $this->getJson("/api/devices/{$device->id}/readings?range=1h")->assertOk();
     }
 
+    public function test_sections_are_absent_from_the_html_not_just_hidden(): void
+    {
+        $user = $this->userWithMeterSlugs(['meter.access', 'meter.live_data']);
+        $device = $this->meterOwnedBy($user);
+
+        $html = $this->actingAs($user)
+            ->get(route('devices.dashboard', $device))
+            ->assertOk()
+            ->getContent();
+
+        // Markers are exact HTML fragments unique to each section's markup —
+        // class names/ids alone would false-positive on the CSS/JS blocks,
+        // which render for every user.
+        $this->assertStringContainsString('<div class="kpi-grid">', $html);          // Section 1 granted
+        $this->assertStringNotContainsString('id="chartVC"', $html);                 // Section 2 absent
+        $this->assertStringNotContainsString('<tbody id="readings-body">', $html);   // Section 3 absent
+        $this->assertStringNotContainsString('chart.umd.min.js', $html);             // Chart.js not downloaded
+        $this->assertStringNotContainsString('data-range="6h"', $html);              // range bar rides with 2/3
+
+        // Full consumer: everything renders, including the library.
+        $full = User::factory()->consumer()->create();
+        $fullHtml = $this->actingAs($full)
+            ->get(route('devices.dashboard', $this->meterOwnedBy($full)))
+            ->assertOk()
+            ->getContent();
+
+        foreach (['<div class="kpi-grid">', 'id="chartVC"', '<tbody id="readings-body">',
+                  'chart.umd.min.js', 'data-range="6h"'] as $marker) {
+            $this->assertStringContainsString($marker, $fullHtml);
+        }
+    }
+
     public function test_ownership_still_bounds_meter_permissions(): void
     {
         // Full consumer bundle, but someone else's meter: policy view fails.

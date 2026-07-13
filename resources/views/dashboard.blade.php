@@ -49,7 +49,7 @@
     {{-- Devices section --}}
     <div class="flex items-center justify-between mb-4">
         <h2 class="font-mono text-sm font-bold text-white uppercase tracking-widest">
-            {{ auth()->user()->isAdminOrAbove() ? 'Recent Devices' : 'My Devices' }}
+            {{ auth()->user()->can('devices.view_any') ? 'Recent Devices' : 'My Devices' }}
         </h2>
         <a href="{{ route('devices.index') }}"
            class="text-xs text-iot-accent hover:text-iot-accent/80 transition-colors">
@@ -60,7 +60,7 @@
     @if($recentDevices->count() > 0)
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             @foreach($recentDevices as $device)
-                <x-device-card :device="$device" :showOwner="auth()->user()->isAdminOrAbove()" />
+                <x-device-card :device="$device" :showOwner="auth()->user()->can('devices.view_any')" />
             @endforeach
         </div>
     @else

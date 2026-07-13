@@ -1,8 +1,9 @@
 <x-app-layout>
     <x-page-header
-        :title="auth()->user()->isAdminOrAbove() ? 'All Devices' : 'My Devices'"
+        :title="auth()->user()->can('devices.view_any') ? 'All Devices' : 'My Devices'"
         subtitle="Monitor and manage your IoT devices.">
         <x-slot name="actions">
+            @can('create', App\Models\Device::class)
             <a href="{{ route('devices.create') }}"
                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
                       bg-iot-accent text-iot-bg hover:bg-iot-accent/90 transition-colors">
@@ -11,6 +12,7 @@
                 </svg>
                 Add Device
             </a>
+            @endcan
         </x-slot>
     </x-page-header>
 
@@ -23,9 +25,9 @@
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Name</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Code</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Type</th>
-                            @if(auth()->user()->isAdminOrAbove())
+                            @can('devices.view_any')
                                 <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Owner</th>
-                            @endif
+                            @endcan
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted">Health</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted hidden md:table-cell">Availability</th>
                             <th class="px-5 py-3.5 text-left font-mono text-[10px] uppercase tracking-widest text-iot-muted hidden lg:table-cell">Issue</th>
@@ -59,7 +61,7 @@
                                         {{ str_replace('_', ' ', $device->type) }}
                                     </span>
                                 </td>
-                                @if(auth()->user()->isAdminOrAbove())
+                                @can('devices.view_any')
                                     <td class="px-5 py-4">
                                         @if($device->user)
                                             <div class="text-sm text-iot-text">{{ $device->user->name }}</div>
@@ -68,7 +70,7 @@
                                             <span class="text-iot-muted text-xs italic">Unassigned</span>
                                         @endif
                                     </td>
-                                @endif
+                                @endcan
                                 <td class="px-5 py-4">
                                     <x-status-badge :status="$healthStatus" :label="$health['label']" />
                                 </td>
@@ -90,21 +92,24 @@
                                                       hover:bg-iot-accent/20 transition-colors whitespace-nowrap">
                                                 Dashboard
                                             </a>
-                                            @can('update', $device)
+                                            @if(auth()->user()->can('devices.edit_any')
+                                                || (auth()->user()->can('alerts.settings_own') && $device->user_id === auth()->id()))
                                                 <a href="{{ route('devices.alerts.edit', $device) }}"
                                                    class="px-3 py-1.5 rounded-lg text-xs font-medium
                                                           text-iot-amber border border-iot-amber/20
                                                           hover:bg-iot-amber/10 transition-colors">
                                                     Alerts
                                                 </a>
-                                            @endcan
+                                            @endif
                                         @endif
+                                        @can('update', $device)
                                         <a href="{{ route('devices.edit', $device) }}"
                                            class="px-3 py-1.5 rounded-lg text-xs font-medium
                                                   text-iot-muted border border-iot-border
                                                   hover:text-white hover:bg-iot-surface2 transition-colors">
                                             Edit
                                         </a>
+                                        @endcan
                                         @can('delete', $device)
                                             <form action="{{ route('devices.destroy', $device) }}" method="POST"
                                                   onsubmit="return confirm('Delete {{ addslashes($device->name) }}? This cannot be undone.')">
@@ -136,11 +141,13 @@
             </div>
             <h3 class="font-mono text-base font-bold text-white mb-2">No devices found</h3>
             <p class="text-sm text-iot-muted mb-6">Add your first IoT device to start monitoring.</p>
+            @can('create', App\Models\Device::class)
             <a href="{{ route('devices.create') }}"
                class="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium
                       bg-iot-accent text-iot-bg hover:bg-iot-accent/90 transition-colors">
                 + Add Device
             </a>
+            @endcan
         </div>
     @endif
 </x-app-layout>
