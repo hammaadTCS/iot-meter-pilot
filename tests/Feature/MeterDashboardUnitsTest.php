@@ -28,11 +28,10 @@ class MeterDashboardUnitsTest extends TestCase
         parent::setUp();
 
         $this->withoutVite();
-        // These tests exercise the monthly panel / daily report / charts
-        // content, which renders with meter.charts — an opt-in the super
-        // admin grants on top of the consumer bundle (not included in it).
+        // Monthly panel + daily report are BASIC content (meter.access) —
+        // a plain consumer sees them; only the five live electrical charts
+        // need the meter.charts opt-in.
         $this->user = User::factory()->consumer()->create();
-        $this->user->givePermissionTo('meter.charts');
         $this->actingAs($this->user);
     }
 

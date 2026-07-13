@@ -85,14 +85,14 @@ class MeterSectionPermissionsTest extends TestCase
         // class names/ids alone would false-positive on the CSS/JS blocks,
         // which render for every user.
         $this->assertStringContainsString('<div class="kpi-grid">', $html);          // Section 1 granted
-        $this->assertStringNotContainsString('id="chartVC"', $html);                 // Section 2 absent
+        $this->assertStringContainsString('Monthly Consumption', $html);             // reporting is basic (meter.access)
+        $this->assertStringContainsString('Daily Breakdown', $html);                 // reporting is basic (meter.access)
+        $this->assertStringNotContainsString('id="chartVC"', $html);                 // live charts absent (opt-in)
         $this->assertStringNotContainsString('<tbody id="readings-body">', $html);   // Section 3 absent
-        $this->assertStringNotContainsString('chart.umd.min.js', $html);             // Chart.js not downloaded
         $this->assertStringNotContainsString('data-range="6h"', $html);              // range bar rides with 2/3
 
-        // Consumer + the charts opt-in (charts left the consumer bundle on
-        // 2026-07-13 — super admin grants it per user): everything renders,
-        // including the library.
+        // Consumer + the charts opt-in (super admin grants meter.charts per
+        // user): the five live charts appear on top of the basic content.
         $full = User::factory()->consumer()->create();
         $full->givePermissionTo('meter.charts');
         $fullHtml = $this->actingAs($full)
@@ -101,7 +101,7 @@ class MeterSectionPermissionsTest extends TestCase
             ->getContent();
 
         foreach (['<div class="kpi-grid">', 'id="chartVC"', '<tbody id="readings-body">',
-                  'chart.umd.min.js', 'data-range="6h"'] as $marker) {
+                  'Monthly Consumption', 'data-range="6h"'] as $marker) {
             $this->assertStringContainsString($marker, $fullHtml);
         }
     }
