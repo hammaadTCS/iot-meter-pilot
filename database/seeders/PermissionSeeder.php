@@ -74,9 +74,11 @@ class PermissionSeeder extends Seeder
      */
     public const BUNDLES = [
         'consumer' => [
+            // meter.charts is deliberately NOT in this bundle — it is an
+            // opt-in the super admin grants per user (direct grant on the
+            // Manage Access screen). Product decision 2026-07-13.
             'meter.access',
             'meter.live_data',
-            'meter.charts',
             'meter.history',
             'meter.rename',
         ],

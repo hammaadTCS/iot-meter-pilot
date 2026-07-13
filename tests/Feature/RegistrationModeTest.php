@@ -27,10 +27,14 @@ class RegistrationModeTest extends TestCase
         $user = User::where('email', 'newconsumer@test.local')->firstOrFail();
         $this->assertTrue($user->hasRole('consumer'));
 
-        // Bundle semantics: full own-meter dashboard, no device management.
+        // Bundle semantics: own-meter dashboard (KPIs + history + rename),
+        // no device management. meter.charts is NOT included — it is a
+        // per-user opt-in granted by the super admin.
         $this->assertTrue($user->can('meter.access'));
-        $this->assertTrue($user->can('meter.charts'));
+        $this->assertTrue($user->can('meter.live_data'));
+        $this->assertTrue($user->can('meter.history'));
         $this->assertTrue($user->can('meter.rename'));
+        $this->assertFalse($user->can('meter.charts'));
         $this->assertFalse($user->can('devices.create'));
         $this->assertFalse($user->can('devices.view_any'));
     }
