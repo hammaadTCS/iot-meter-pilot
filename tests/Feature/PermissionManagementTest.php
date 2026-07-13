@@ -115,10 +115,11 @@ class PermissionManagementTest extends TestCase
         $this->assertTrue($target->can('meter.live_data'));
     }
 
-    public function test_admin_creates_accounts_with_a_bundle_instead_of_a_role(): void
+    public function test_accounts_are_created_with_a_bundle_instead_of_a_role(): void
     {
-        // Legacy admin middleware still guards /users until Phase 5.
-        $creator = User::factory()->create(['role' => 'admin']);
+        // Account creation requires users.view_list + users.create — held by
+        // super admins (Gate::before) or explicit delegation.
+        $creator = User::factory()->superAdmin()->create();
 
         $this->actingAs($creator)->post(route('users.store'), [
             'name' => 'Bundled User',

@@ -28,7 +28,7 @@ class DeviceReadingConsumptionTest extends TestCase
         parent::setUp();
 
         Carbon::setTestNow('2026-06-30 12:00:00');
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->consumer()->create();
         $this->actingAs($this->user, 'sanctum');
     }
 
@@ -57,7 +57,7 @@ class DeviceReadingConsumptionTest extends TestCase
 
     public function test_forbids_a_non_owner(): void
     {
-        $owner = User::factory()->create();
+        $owner = User::factory()->consumer()->create();
         $device = $this->createMeter($owner); // owned by someone else
 
         $this->getJson("/api/devices/{$device->id}/readings/consumption?range=1h")

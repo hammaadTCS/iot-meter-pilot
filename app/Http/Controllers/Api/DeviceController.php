@@ -18,8 +18,8 @@ class DeviceController extends Controller
     {
         $user = $request->user();
 
-        // Admin sees all devices, regular users see only their own
-        $query = $user->isAdmin() ? Device::query() : Device::forUser($user);
+        // Fleet visibility is a permission, not a role.
+        $query = $user->can('devices.view_any') ? Device::query() : Device::forUser($user);
 
         return response()->json(
             $query->orderBy('id', 'desc')->get()

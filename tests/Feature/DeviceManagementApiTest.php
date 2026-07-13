@@ -21,7 +21,11 @@ class DeviceManagementApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        // A provisioning archetype: field_engineer carries devices.create +
+        // api.devices.write; deleting its own devices is a direct grant on
+        // top (bundles stay lean — plan §3.2).
+        $this->user = User::factory()->fieldEngineer()->create();
+        $this->user->givePermissionTo('devices.delete_own');
         $this->actingAs($this->user, 'sanctum');
     }
 

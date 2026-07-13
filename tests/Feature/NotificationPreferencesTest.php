@@ -20,7 +20,7 @@ class NotificationPreferencesTest extends TestCase
     public function test_settings_page_renders(): void
     {
         $this->withoutVite();
-        $this->actingAs(User::factory()->create(['role' => 'user']));
+        $this->actingAs(User::factory()->consumer()->create());
 
         $this->get('/settings/notifications')
             ->assertOk()
@@ -29,7 +29,7 @@ class NotificationPreferencesTest extends TestCase
 
     public function test_user_can_update_their_preferences(): void
     {
-        $user = User::factory()->create(['role' => 'user']);
+        $user = User::factory()->consumer()->create();
 
         $this->actingAs($user)->patch('/settings/notifications', [
             'min_severity'      => 'critical',
@@ -49,7 +49,7 @@ class NotificationPreferencesTest extends TestCase
 
     public function test_a_non_admin_cannot_opt_into_fleet_wide_delivery(): void
     {
-        $user = User::factory()->create(['role' => 'user']);
+        $user = User::factory()->consumer()->create();
 
         $this->actingAs($user)->patch('/settings/notifications', [
             'min_severity' => 'warning',
@@ -61,7 +61,7 @@ class NotificationPreferencesTest extends TestCase
 
     public function test_an_admin_can_opt_into_fleet_wide_delivery(): void
     {
-        $admin = User::factory()->create(['role' => 'admin']);
+        $admin = User::factory()->fleetOperator()->create();
 
         $this->actingAs($admin)->patch('/settings/notifications', [
             'min_severity' => 'warning',

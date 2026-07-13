@@ -23,8 +23,8 @@ class AlertsConsoleTest extends TestCase
     {
         $this->withoutVite();
 
-        $owner = User::factory()->create(['role' => 'user']);
-        $other = User::factory()->create(['role' => 'user']);
+        $owner = User::factory()->consumer()->create();
+        $other = User::factory()->consumer()->create();
 
         $this->alertFor($this->meterFor($owner), 'Own meter is down');
         $this->alertFor($this->meterFor($other), 'Another owners meter');
@@ -39,8 +39,8 @@ class AlertsConsoleTest extends TestCase
     {
         $this->withoutVite();
 
-        $admin = User::factory()->create(['role' => 'admin']);
-        $someone = User::factory()->create(['role' => 'user']);
+        $admin = User::factory()->fleetOperator()->create();
+        $someone = User::factory()->consumer()->create();
 
         $this->alertFor($this->meterFor($someone), 'Fleet meter alert');
 

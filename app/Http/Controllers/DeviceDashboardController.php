@@ -5,24 +5,32 @@ namespace App\Http\Controllers;
 use App\Models\Device;
 use App\Models\MeterDailyConsumption;
 use App\Services\Meters\RangeConsumption;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 
 class DeviceDashboardController extends Controller
 {
+    use AuthorizesRequests;
+
     public function show(Device $device): View
     {
-        $user = Auth::user();
-
-        if (!$user->isAdminOrAbove() && $device->user_id !== $user->id) {
-            abort(403, 'You do not have access to this device.');
-        }
+        $this->authorize('view', $device);
 
         if (!$device->is_active) {
             return view('devices.dashboards.placeholder', [
                 'device' => $device,
                 'reason' => 'disabled',
+            ]);
+        }
+
+        // meter.access is the master gate for the whole meter system — the
+        // section permissions below it are meaningless without it.
+        if ($device->type === 'meter' && ! Auth::user()->can('meter.access')) {
+            return view('devices.dashboards.placeholder', [
+                'device' => $device,
+                'reason' => 'no_access',
             ]);
         }
 
@@ -102,7 +110,15 @@ class DeviceDashboardController extends Controller
             ->firstWhere('period_start', $currentMonth->toDateString())['units_kwh']
             ?? $dailyBreakdown->sum('units_kwh'));
 
+        $user = Auth::user();
+
         return view('devices.dashboards.meter', [
+            // Section visibility (plan §7b–e): the view renders only the
+            // permitted sections; the matching API endpoints enforce the
+            // same slugs server-side. The range bar rides with charts/history.
+            'canViewLiveData'    => $user->can('meter.live_data'),
+            'canViewCharts'      => $user->can('meter.charts'),
+            'canViewHistory'     => $user->can('meter.history'),
             'device'             => $device,
             'rangeUnits'         => $rangeUnits,
             'dailyBreakdown'     => $dailyBreakdown,

@@ -14,7 +14,8 @@ class NotificationPreferenceController extends Controller
     {
         return view('settings.notifications', [
             'prefs'   => NotificationPreference::forUser($request->user()),
-            'isAdmin' => $request->user()->isAdminOrAbove(),
+            // Naming kept for the blade; the capability is now a permission.
+            'isAdmin' => $request->user()->can('alerts.fleet_scope'),
         ]);
     }
 
@@ -37,9 +38,10 @@ class NotificationPreferenceController extends Controller
             $start = $end = null;
         }
 
-        // Only admins may opt into fleet-wide delivery — otherwise a user could
-        // subscribe themselves to every device's alerts. Force 'own' for others.
-        $fleetScope = ($validated['fleet_scope'] === 'all' && $user->isAdminOrAbove()) ? 'all' : 'own';
+        // Fleet-wide delivery requires the alerts.fleet_scope permission —
+        // otherwise a user could subscribe themselves to every device's
+        // alerts. Force 'own' for everyone else.
+        $fleetScope = ($validated['fleet_scope'] === 'all' && $user->can('alerts.fleet_scope')) ? 'all' : 'own';
 
         NotificationPreference::updateOrCreate(
             ['user_id' => $user->id],

@@ -41,4 +41,32 @@ class UserFactory extends Factory
             'email_verified_at' => null,
         ]);
     }
+
+    // ── Grant-bundle states (hybrid FGAC) ────────────────────────────────
+    // Requires the permission catalog to be seeded (TestCase::setUp does).
+
+    public function consumer(): static
+    {
+        return $this->afterCreating(fn ($user) => $user->assignRole('consumer'));
+    }
+
+    public function prosumer(): static
+    {
+        return $this->afterCreating(fn ($user) => $user->assignRole('prosumer'));
+    }
+
+    public function fieldEngineer(): static
+    {
+        return $this->afterCreating(fn ($user) => $user->assignRole('field_engineer'));
+    }
+
+    public function fleetOperator(): static
+    {
+        return $this->afterCreating(fn ($user) => $user->assignRole('fleet_operator'));
+    }
+
+    public function superAdmin(): static
+    {
+        return $this->afterCreating(fn ($user) => $user->assignRole('super_admin'));
+    }
 }

@@ -173,6 +173,7 @@ class DeviceReadingController extends Controller
     public function chart(Request $request, Device $device): JsonResponse
     {
         $this->authorize('view', $device);
+        abort_unless($request->user()->can('meter.access') && $request->user()->can('meter.charts'), 403, 'Missing meter.charts permission.');
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -240,6 +241,7 @@ class DeviceReadingController extends Controller
     public function index(Request $request, Device $device): JsonResponse
     {
         $this->authorize('view', $device);
+        abort_unless($request->user()->can('meter.access') && $request->user()->can('meter.history'), 403, 'Missing meter.history permission.');
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -315,6 +317,7 @@ class DeviceReadingController extends Controller
     public function consumption(Request $request, Device $device): JsonResponse
     {
         $this->authorize('view', $device);
+        abort_unless($request->user()->can('meter.access'), 403, 'Missing meter.access permission.');
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -347,6 +350,7 @@ class DeviceReadingController extends Controller
     public function dailyConsumption(Request $request, Device $device): StreamedResponse|JsonResponse
     {
         $this->authorize('view', $device);
+        abort_unless($request->user()->can('meter.access'), 403, 'Missing meter.access permission.');
 
         $month = $this->resolveMonth($request);
         if (! $month) {
@@ -468,46 +472,4 @@ class DeviceReadingController extends Controller
         return $str;
     }
 
-    /**
-     * Debug endpoint — GET /api/devices/{device}/readings/debug
-     * Shows row counts per range and the newest/oldest three rows.
-     */
-    public function debug(Device $device): JsonResponse
-    {
-        $table = self::TABLE;
-
-        $totalRows = DB::table($table)->where('device_id', $device->id)->count();
-
-        $rangeCounts = [];
-        foreach (self::VALID_RANGES as $range) {
-            $start = $this->windowStart($range);
-
-            $rangeCounts[$range] = [
-                'from'  => $start->toDateTimeString(),
-                'count' => DB::table($table)
-                    ->where('device_id', $device->id)
-                    ->where(function ($q) use ($start) {
-                        $q->where('received_at', '>=', $start)
-                            ->orWhere(fn ($leg) => $leg->whereNull('received_at')->where('created_at', '>=', $start));
-                    })
-                    ->count(),
-            ];
-        }
-
-        $columns = ['id', 'ts', 'received_at', 'created_at', 'updated_at', 'voltage', 'current', 'power'];
-
-        return response()->json([
-            'device_id'       => $device->id,
-            'device_name'     => $device->name,
-            'table'           => $table,
-            'recorded_at_sql' => self::RECORDED_AT_SQL,
-            'total_rows'      => $totalRows,
-            'server_time_now' => now()->toDateTimeString(),
-            'range_counts'    => $rangeCounts,
-            'newest_3_rows'   => DB::table($table)->where('device_id', $device->id)
-                ->orderByRaw(self::RECORDED_AT_SQL . ' desc')->limit(3)->get($columns),
-            'oldest_3_rows'   => DB::table($table)->where('device_id', $device->id)
-                ->orderByRaw(self::RECORDED_AT_SQL . ' asc')->limit(3)->get($columns),
-        ]);
-    }
 }

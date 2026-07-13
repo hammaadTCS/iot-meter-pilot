@@ -23,7 +23,7 @@ class MeterHealthViewsTest extends TestCase
 
         $this->withoutVite();
         Carbon::setTestNow('2026-04-21 12:00:00');
-        $this->user = User::factory()->create();
+        $this->user = User::factory()->consumer()->create();
         $this->actingAs($this->user);
     }
 

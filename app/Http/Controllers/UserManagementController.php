@@ -100,11 +100,10 @@ class UserManagementController extends Controller
     {
         $authUser = Auth::user();
 
-        if (!$authUser->isSuperAdmin()) {
-            abort(403);
-        }
+        // Route is role:super_admin; this is defense in depth.
+        abort_unless($authUser->can('users.delete'), 403);
 
-        if ($user->isSuperAdmin()) {
+        if ($user->hasRole('super_admin') || $user->isSuperAdmin()) {
             return back()->with('error', 'Cannot delete a super admin account.');
         }
 
@@ -118,18 +117,4 @@ class UserManagementController extends Controller
             ->with('success', 'User deleted.');
     }
 
-    public function updateRole(Request $request, User $user): RedirectResponse
-    {
-        if (!Auth::user()->isSuperAdmin()) {
-            abort(403);
-        }
-
-        $validated = $request->validate([
-            'role' => ['required', 'in:user,admin,super_admin'],
-        ]);
-
-        $user->update(['role' => $validated['role']]);
-
-        return back()->with('success', "Role updated to {$validated['role']}.");
-    }
 }

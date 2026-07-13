@@ -66,6 +66,13 @@ class TestUsersSeeder extends Seeder
             ]
         );
 
+        // Bundles mirror the legacy roles (idempotent) — enforcement reads
+        // permissions, so test users need bundles, not just the role column.
+        User::where('email', 'superadmin@test.local')->first()?->assignRole('super_admin');
+        User::where('email', 'admin@test.local')->first()?->assignRole(['field_engineer', 'fleet_operator']);
+        $user1->assignRole('consumer');
+        $user2->assignRole('consumer');
+
         // Assign devices to users (only if devices exist)
         $devices = Device::all();
 
