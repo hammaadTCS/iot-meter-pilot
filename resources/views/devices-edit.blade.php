@@ -1,5 +1,8 @@
 <x-app-layout>
-    <x-page-header title="Edit Device" :subtitle="'Updating: ' . $device->name" />
+    <x-page-header :title="($nameOnly ?? false) ? 'Rename Meter' : 'Edit Device'"
+        :subtitle="($nameOnly ?? false)
+            ? 'You can change the display name. Hardware settings are managed by your administrator.'
+            : 'Updating: ' . $device->name" />
 
     <div class="max-w-2xl">
         <div class="bg-iot-surface border border-iot-border rounded-2xl p-6 sm:p-8">
@@ -7,8 +10,32 @@
                 @csrf
                 @method('PATCH')
 
-                {{-- Admin: reassign --}}
-                @if(auth()->user()->isAdminOrAbove())
+                @if($nameOnly ?? false)
+                    {{-- meter.rename without an edit permission: name only --}}
+                    <div>
+                        <label for="name" class="block font-mono text-xs uppercase tracking-widest text-iot-muted mb-2">
+                            Device Name <span class="text-iot-red">*</span>
+                        </label>
+                        <input type="text" id="name" name="name" value="{{ old('name', $device->name) }}"
+                            class="w-full px-4 py-2.5 bg-iot-surface2 border border-iot-border rounded-xl text-iot-text text-sm
+                                   placeholder:text-iot-muted focus:outline-none focus:border-iot-accent focus:ring-1 focus:ring-iot-accent/50
+                                   @error('name') border-iot-red @enderror"
+                            required>
+                        @error('name')
+                            <p class="text-iot-red text-xs mt-1">{{ $message }}</p>
+                        @enderror
+                    </div>
+
+                    <div class="space-y-2 bg-iot-surface2/40 border border-iot-border rounded-xl p-4">
+                        <p class="font-mono text-[10px] uppercase tracking-widest text-iot-muted">Locked settings</p>
+                        <p class="text-sm text-iot-text font-mono">Code: {{ $device->code }}</p>
+                        <p class="text-sm text-iot-text font-mono">Type: {{ str_replace('_', ' ', $device->type) }}</p>
+                        <p class="text-sm text-iot-text font-mono break-all">Topic: {{ $device->mqtt_topic }}</p>
+                        <p class="text-sm text-iot-text font-mono">Status: {{ $device->is_active ? 'Active' : 'Disabled' }}</p>
+                    </div>
+                @else
+                {{-- Owner reassignment — requires devices.assign_owner --}}
+                @if(auth()->user()->can('devices.assign_owner'))
                     <div>
                         <label for="user_id" class="block font-mono text-xs uppercase tracking-widest text-iot-muted mb-2">
                             Assigned To User <span class="text-iot-red">*</span>
@@ -21,7 +48,7 @@
                             <option value="">— Select User —</option>
                             @foreach($users as $u)
                                 <option value="{{ $u->id }}" {{ old('user_id', $device->user_id) == $u->id ? 'selected' : '' }}>
-                                    {{ $u->name }} ({{ $u->email }}) — {{ $u->role }}
+                                    {{ $u->name }} ({{ $u->email }})
                                 </option>
                             @endforeach
                         </select>
@@ -129,12 +156,14 @@
                     </div>
                 </div>
 
+                @endif{{-- /full-edit branch --}}
+
                 {{-- Form actions --}}
                 <div class="flex gap-3 pt-2 border-t border-iot-border">
                     <button type="submit"
                             class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-medium
                                    bg-iot-accent text-iot-bg hover:bg-iot-accent/90 transition-colors">
-                        Update Device
+                        {{ ($nameOnly ?? false) ? 'Rename' : 'Update Device' }}
                     </button>
                     <a href="{{ route('devices.manage') }}"
                        class="flex-1 sm:flex-none px-6 py-2.5 rounded-xl text-sm font-medium text-center

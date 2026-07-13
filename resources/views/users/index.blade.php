@@ -1,6 +1,7 @@
 <x-app-layout>
     <x-page-header title="Users" subtitle="Manage user accounts and permissions.">
         <x-slot name="actions">
+            @can('users.create')
             <a href="{{ route('users.create') }}"
                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
                       bg-iot-accent text-iot-bg hover:bg-iot-accent/90 transition-colors">
@@ -9,6 +10,7 @@
                 </svg>
                 Add User
             </a>
+            @endcan
         </x-slot>
     </x-page-header>
 
@@ -88,11 +90,13 @@
                                                   hover:text-white hover:bg-iot-surface2 transition-colors">
                                             View
                                         </a>
+                                        @can('users.edit')
                                         <a href="{{ route('users.edit', $user) }}"
                                            class="px-3 py-1.5 rounded-lg text-xs font-medium text-iot-muted border border-iot-border
                                                   hover:text-white hover:bg-iot-surface2 transition-colors">
                                             Edit
                                         </a>
+                                        @endcan
                                         @can('users.manage_permissions')
                                             @unless($user->hasRole('super_admin'))
                                                 <a href="{{ route('users.permissions.show', $user) }}"
@@ -102,7 +106,7 @@
                                                 </a>
                                             @endunless
                                         @endcan
-                                        @if(auth()->user()->isSuperAdmin() && !$user->isSuperAdmin())
+                                        @if(auth()->user()->can('users.delete') && ! $user->hasRole('super_admin'))
                                             <form action="{{ route('users.destroy', $user) }}" method="POST"
                                                   onsubmit="return confirm('Delete {{ addslashes($user->name) }}? This cannot be undone.')">
                                                 @csrf

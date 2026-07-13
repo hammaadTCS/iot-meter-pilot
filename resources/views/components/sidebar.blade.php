@@ -37,7 +37,7 @@
             </x-sidebar-item>
         </x-sidebar-section>
 
-        @if(auth()->user()->isAdminOrAbove())
+        @can('users.view_list')
         <x-sidebar-section label="Administration">
             <x-sidebar-item :href="route('users.index')" :active="request()->routeIs('users.*')">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -46,7 +46,7 @@
                 Users
             </x-sidebar-item>
         </x-sidebar-section>
-        @endif
+        @endcan
 
         <x-sidebar-section label="Account">
             <x-sidebar-item :href="route('profile.edit')" :active="request()->routeIs('profile.*')">
@@ -72,7 +72,10 @@
                 <p class="text-sm font-medium text-white truncate">{{ auth()->user()->name }}</p>
                 <p class="text-xs text-iot-muted truncate">{{ auth()->user()->email }}</p>
             </div>
-            <x-role-badge :role="auth()->user()->role" />
+            @if(auth()->user()->hasRole('super_admin'))
+                <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-mono font-bold
+                             bg-iot-accent/15 text-iot-accent border border-iot-accent/30">SA</span>
+            @endif
         </div>
     </div>
 </aside>

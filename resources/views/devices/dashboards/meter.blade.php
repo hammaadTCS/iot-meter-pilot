@@ -8,8 +8,11 @@
 @php($currentSnapshotRecordedAt = data_get($currentSnapshot, 'recorded_at'))
 
 @push('styles')
-{{-- Chart.js --}}
+{{-- Chart.js — emitted only when meter.charts is granted (hybrid FGAC):
+     users without the charts section never download the ~200KB library. --}}
+@if($canViewCharts)
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+@endif
 <style>
         /* ─────────────────────────────────────────────────────────────
          * CSS CUSTOM PROPERTIES — change colours here, they cascade
@@ -861,6 +864,7 @@
          counter) keep their values: totals remain true regardless of liveness.
          The same rule is applied live in updateKPIs()/refreshDeviceHealth(). --}}
     @php($liveKpisDown = ($deviceHealth['status'] ?? '') === 'down')
+    @if($canViewLiveData){{-- Section 1 (meter.live_data) — hybrid FGAC --}}
     <div class="kpi-grid">
         <div class="kpi kpi--voltage">
             <span class="kpi-icon">⚡</span>
@@ -939,7 +943,9 @@
             </div>
         </div>
     </div>
+    @endif{{-- /Section 1 (meter.live_data) --}}
 
+    @if($canViewCharts){{-- Reporting visuals ride with Section 2 (meter.charts) --}}
     {{-- ══════════════════════════════════════════════════════════
          MONTHLY UNITS PANEL
          Full-width horizontal bar chart of consumption (kWh) per calendar
@@ -998,6 +1004,10 @@
         </div>
     </div>
 
+    @endif{{-- /reporting visuals (meter.charts) --}}
+
+    @if($canViewCharts || $canViewHistory)
+    {{-- Range selector is shared by charts + table — meaningless without either. --}}
     {{-- ══════════════════════════════════════════════════════════
          CONTROLS BAR
          Range buttons on the left, "N new readings" badge on the right
@@ -1043,7 +1053,9 @@
             </div>
         </div>
     </div>
+    @endif{{-- /controls bar --}}
 
+    @if($canViewCharts){{-- Section 2 (meter.charts) --}}
     {{-- ══════════════════════════════════════════════════════════
          CHARTS SECTION
          Wrapped in .section-wrap so the spinner can overlay it
@@ -1097,7 +1109,9 @@
 
         </div>
     </div>{{-- /.section-wrap (charts) --}}
+    @endif{{-- /Section 2 (meter.charts) --}}
 
+    @if($canViewHistory){{-- Section 3 (meter.history) --}}
     {{-- ══════════════════════════════════════════════════════════
          READINGS TABLE
          Newest row at top. Scrollable. New rows flash on arrival.
@@ -1142,6 +1156,7 @@
         <span class="page-info" id="pageInfo">—</span>
         <button class="page-btn" id="nextPageBtn" disabled>Next →</button>
     </div>
+    @endif{{-- /Section 3 (meter.history) --}}
 
 </div>{{-- /.shell --}}
 
@@ -1167,6 +1182,15 @@ const API_DAILY        = `/api/devices/${DEVICE_ID}/consumption/daily`;
 const API_STATUS       = `/api/devices/${DEVICE_ID}/status`;
 const REFRESH_INTERVAL = 30;  // seconds between background polls
 const TABLE_PER_PAGE   = 100; // must match DeviceReadingController::TABLE_PER_PAGE
+
+/**
+ * Hybrid FGAC section flags (server-rendered; the APIs enforce the same
+ * slugs, so these only decide which fetch/update paths run — a forged flag
+ * would just produce 403s). Sections without the flag are not in the DOM.
+ */
+const CAN_LIVE_DATA = @json($canViewLiveData);
+const CAN_CHARTS    = @json($canViewCharts);
+const CAN_HISTORY   = @json($canViewHistory);
 
 /** Blade-rendered snapshots used to seed the UI before the first fetch. */
 const INITIAL_DEVICE_HEALTH       = @json($deviceHealth);
@@ -1232,6 +1256,7 @@ let currentSnapshot          = INITIAL_CURRENT_SNAPSHOT;
  * They are updated in-place every time new data arrives.
  * ═══════════════════════════════════════════════════════════════════════ */
 
+@if($canViewCharts)
 /* Apply dark-theme defaults globally to every Chart.js instance */
 Chart.defaults.color       = '#64748b';
 Chart.defaults.borderColor = '#1f2d45';
@@ -1418,7 +1443,13 @@ const chartMonthly = monthlyCanvas ? new Chart(monthlyCanvas, {
         },
     },
 }) : null;
-
+@else
+/* meter.charts not granted — Chart.js is not loaded. Inert sentinels keep
+   every cross-reference (updateMonthlyChartCurrent, boot) safe without
+   scattering permission checks through the shared code paths. */
+const chartVC = null, chartPow = null, chartEng = null, chartFrq = null, chartPF = null;
+const chartMonthly = null, monthlyRows = [], CURRENT_PERIOD_START = null;
+@endif
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 4. FORMATTING HELPERS
@@ -1937,6 +1968,8 @@ function clearConnectionIssue() {
  * @param {string} range     — current range key (for label formatting)
  */
 function updateCharts(readings, range) {
+    if (!CAN_CHARTS) return; // section absent — nothing to draw
+
     // Build parallel arrays — Chart.js needs one array per data series
     const labels = readings.map(r => fmtChartLabel(r.created_at, range));
     const V      = readings.map(r => parseFloat(r.voltage)             || 0);
@@ -2024,6 +2057,8 @@ function updateMonthlyChartCurrent(monthlyUnitsKwh) {
  * Updates the 8 live KPI cards with the current snapshot values.
  */
 function updateKPIs() {
+    if (!CAN_LIVE_DATA) return; // Section 1 absent — nothing to update
+
     const snapshot = currentSnapshot;
     const timestampParts = formatTimestampParts(snapshot?.recorded_at);
 
@@ -2548,45 +2583,50 @@ async function fetchNewRows() {
  * ═══════════════════════════════════════════════════════════════════════ */
 
 async function fullLoad(range) {
-    document.getElementById('chartsLoader').classList.add('show');
-    document.getElementById('tableLoader').classList.add('show');
+    // Loaders exist only when their section is rendered (hybrid FGAC).
+    document.getElementById('chartsLoader')?.classList.add('show');
+    document.getElementById('tableLoader')?.classList.add('show');
 
     try {
-        // Three parallel requests — chart sample, table page 1, device status.
+        // Parallel requests — each data path only when its section is
+        // granted; the server enforces the same slugs with 403s, so the
+        // flags are a bandwidth optimisation, not the security boundary.
         const [chartRows, { rows: tableRows, meta }, statusPayload, rangeUnits] = await Promise.all([
-            fetchChartData(),
-            fetchTableData(1),
-            fetchDeviceStatus(),
-            fetchRangeUnits(),
+            CAN_CHARTS    ? fetchChartData()   : Promise.resolve([]),
+            CAN_HISTORY   ? fetchTableData(1)  : Promise.resolve({ rows: [], meta: { current_page: 1, total: 0, last_page: 1 } }),
+            CAN_LIVE_DATA ? fetchDeviceStatus() : Promise.resolve(null),
+            CAN_LIVE_DATA ? fetchRangeUnits()   : Promise.resolve(null),
         ]);
 
         // Chart — oldest-first, ready for Chart.js.
         chartReadings = chartRows;
         updateCharts(chartReadings, range);
 
-        // Table — newest-first, one page only.
-        tableReadings   = tableRows;
-        tablePage       = meta.current_page;
-        tableTotal      = meta.total;
-        tableTotalPages = meta.last_page;
-        updateTable(range, 0);
-        renderPagination();
+        if (CAN_HISTORY) {
+            // Table — newest-first, one page only.
+            tableReadings   = tableRows;
+            tablePage       = meta.current_page;
+            tableTotal      = meta.total;
+            tableTotalPages = meta.last_page;
+            updateTable(range, 0);
+            renderPagination();
 
-        // Seed the background-refresh cursor from the newest row on page 1.
-        if (tableRows.length > 0) {
-            lastKnownId         = Number(tableRows[0].id ?? 0);
-            lastKnownRecordedAt = tableRows[0].created_at ?? null;
-        } else {
-            lastKnownId         = 0;
-            lastKnownRecordedAt = null;
+            // Seed the background-refresh cursor from the newest row on page 1.
+            if (tableRows.length > 0) {
+                lastKnownId         = Number(tableRows[0].id ?? 0);
+                lastKnownRecordedAt = tableRows[0].created_at ?? null;
+            } else {
+                lastKnownId         = 0;
+                lastKnownRecordedAt = null;
+            }
         }
 
         clearConnectionIssue();
-        applyRuntimeStatus(statusPayload);
+        if (statusPayload) applyRuntimeStatus(statusPayload);
 
         // Range Units KPI — reflects the just-loaded window (always render so the
         // label updates and a failed fetch shows — rather than a stale value).
-        renderRangeUnits(rangeUnits);
+        if (CAN_LIVE_DATA) renderRangeUnits(rangeUnits);
 
         if (!currentSnapshot) {
             updateCurrentSnapshot(makeSnapshotFromReading(tableRows[0] ?? null));
@@ -2595,11 +2635,12 @@ async function fullLoad(range) {
     } catch (err) {
         console.error('[MeterDash] fullLoad failed:', err);
         showConnectionIssue('Dashboard connection issue — readings could not be loaded.');
-        document.getElementById('readings-body').innerHTML =
+        const body = document.getElementById('readings-body');
+        if (body) body.innerHTML =
             `<tr><td colspan="8"><div class="empty-state">⚠ Failed to load data.</div></td></tr>`;
     } finally {
-        document.getElementById('chartsLoader').classList.remove('show');
-        document.getElementById('tableLoader').classList.remove('show');
+        document.getElementById('chartsLoader')?.classList.remove('show');
+        document.getElementById('tableLoader')?.classList.remove('show');
     }
 }
 
@@ -2612,16 +2653,16 @@ async function fullLoad(range) {
 
 async function backgroundRefresh() {
     try {
-        // Parallel: delta rows for the table + refreshed chart sample + device status.
+        // Parallel: only the granted data paths (see fullLoad note).
         const [newRows, freshChart, statusPayload, rangeUnits] = await Promise.all([
-            fetchNewRows(),
-            fetchChartData(),
-            fetchDeviceStatus(),
-            fetchRangeUnits(),
+            CAN_HISTORY   ? fetchNewRows()      : Promise.resolve([]),
+            CAN_CHARTS    ? fetchChartData()    : Promise.resolve([]),
+            CAN_LIVE_DATA ? fetchDeviceStatus() : Promise.resolve(null),
+            CAN_LIVE_DATA ? fetchRangeUnits()   : Promise.resolve(null),
         ]);
 
         clearConnectionIssue();
-        applyRuntimeStatus(statusPayload);
+        if (statusPayload) applyRuntimeStatus(statusPayload);
 
         // Always update the chart — the sampled set shifts as time moves forward.
         chartReadings = freshChart;
@@ -2718,6 +2759,7 @@ function updateCountdownDisplay() {
  */
 function showNewBadge(count) {
     const badge = document.getElementById('newBadge');
+    if (!badge) return; // controls bar not rendered for this user
     badge.textContent = `+${count} new ${count === 1 ? 'reading' : 'readings'}`;
     badge.classList.add('show');
     // Auto-hide after 4 seconds
@@ -2758,8 +2800,9 @@ document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
 
         customRangeFrom = null;
         customRangeTo   = null;
-        document.getElementById('customRangeCard').classList.remove('is-active');
-        document.getElementById('clearCustomRangeBtn').style.display = 'none';
+        document.getElementById('customRangeCard')?.classList.remove('is-active');
+        const clearBtn = document.getElementById('clearCustomRangeBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
 
         activeRange = btn.dataset.range;
         resetState();
@@ -2779,7 +2822,7 @@ document.getElementById('dailyDownloadCsvBtn')?.addEventListener('click', () => 
     window.location.href = `${API_DAILY}?month=${encodeURIComponent(sel ? sel.value : '')}&format=csv`;
 });
 
-document.getElementById('applyCustomRangeBtn').addEventListener('click', async () => {
+document.getElementById('applyCustomRangeBtn')?.addEventListener('click', async () => {
     const fromVal = document.getElementById('customFrom').value;
     const toVal   = document.getElementById('customTo').value;
 
@@ -2805,7 +2848,7 @@ document.getElementById('applyCustomRangeBtn').addEventListener('click', async (
     stopAutoRefresh(); // historical window — no live polling needed
 });
 
-document.getElementById('clearCustomRangeBtn').addEventListener('click', async () => {
+document.getElementById('clearCustomRangeBtn')?.addEventListener('click', async () => {
     document.getElementById('customFrom').value = '';
     document.getElementById('customTo').value   = '';
     document.getElementById('customRangeCard').classList.remove('is-active');
@@ -2831,7 +2874,7 @@ document.getElementById('nextPageBtn')?.addEventListener('click', () => goToPage
  * Manual refresh button: immediately fires a background refresh
  * and resets the countdown timer.
  */
-document.getElementById('manualRefreshBtn').addEventListener('click', async () => {
+document.getElementById('manualRefreshBtn')?.addEventListener('click', async () => {
     await backgroundRefresh();
     startAutoRefresh(); // restart timer so countdown resets to 30
 });
@@ -2861,7 +2904,12 @@ window.addEventListener('meter-availability-updated', (event) => {
     updateKPIs();
     applyDeviceAvailabilityState(currentAvailabilityState);
     refreshDeviceHealth();
-    await fullLoad(activeRange); // first load: chart sample + table page 1 in parallel
+
+    // With no dynamic section granted there is nothing to fetch or poll —
+    // the header pills stay on their server-rendered state.
+    if (!CAN_LIVE_DATA && !CAN_CHARTS && !CAN_HISTORY) return;
+
+    await fullLoad(activeRange); // first load: granted data paths in parallel
     startAutoRefresh();          // begin the 30-second background poll cycle
 })();
 </script>

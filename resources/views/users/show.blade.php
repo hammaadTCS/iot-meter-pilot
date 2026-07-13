@@ -1,13 +1,15 @@
 <x-app-layout>
     <x-page-header :title="$user->name">
         <x-slot name="actions">
+            @can('users.edit')
             <a href="{{ route('users.edit', $user) }}"
                class="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
                       bg-iot-surface2 text-iot-muted border border-iot-border
                       hover:text-white hover:bg-iot-border transition-colors">
                 Edit User
             </a>
-            @if(auth()->user()->isSuperAdmin() && !$user->isSuperAdmin())
+            @endcan
+            @if(auth()->user()->can('users.delete') && ! $user->hasRole('super_admin'))
                 <form action="{{ route('users.destroy', $user) }}" method="POST"
                       onsubmit="return confirm('Delete {{ addslashes($user->name) }}?')">
                     @csrf
