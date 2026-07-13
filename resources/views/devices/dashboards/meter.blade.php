@@ -8,11 +8,10 @@
 @php($currentSnapshotRecordedAt = data_get($currentSnapshot, 'recorded_at'))
 
 @push('styles')
-{{-- Chart.js — emitted only when meter.charts is granted (hybrid FGAC):
-     users without the charts section never download the ~200KB library. --}}
-@if($canViewCharts)
+{{-- Chart.js — always loaded: the Monthly Consumption panel (basic, part of
+     meter.access) is a Chart.js bar chart. Only the five live electrical
+     charts are gated behind meter.charts. --}}
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-@endif
 <style>
         /* ─────────────────────────────────────────────────────────────
          * CSS CUSTOM PROPERTIES — change colours here, they cascade
@@ -945,7 +944,9 @@
     </div>
     @endif{{-- /Section 1 (meter.live_data) --}}
 
-    @if($canViewCharts){{-- Reporting visuals ride with Section 2 (meter.charts) --}}
+    {{-- Monthly panel + daily report are BASIC (product decision 2026-07-13):
+         every user with meter.access sees them — matching their APIs, which
+         are guarded by meter.access only. --}}
     {{-- ══════════════════════════════════════════════════════════
          MONTHLY UNITS PANEL
          Full-width horizontal bar chart of consumption (kWh) per calendar
@@ -1003,8 +1004,6 @@
             </table>
         </div>
     </div>
-
-    @endif{{-- /reporting visuals (meter.charts) --}}
 
     @if($canViewCharts || $canViewHistory)
     {{-- Range selector is shared by charts + table — meaningless without either. --}}
@@ -1256,8 +1255,8 @@ let currentSnapshot          = INITIAL_CURRENT_SNAPSHOT;
  * They are updated in-place every time new data arrives.
  * ═══════════════════════════════════════════════════════════════════════ */
 
-@if($canViewCharts)
-/* Apply dark-theme defaults globally to every Chart.js instance */
+/* Chart.js is always present (monthly panel). Defaults + helpers are shared
+   by the monthly chart and — when meter.charts is granted — the live charts. */
 Chart.defaults.color       = '#64748b';
 Chart.defaults.borderColor = '#1f2d45';
 Chart.defaults.font.family = "'Space Mono', monospace";
@@ -1306,6 +1305,7 @@ const areaStyle = (color) => ({
     tension:            0.4,           // slight bezier smoothing
 });
 
+@if($canViewCharts)
 /* --- Chart 1: Voltage + Current (dual Y-axis) ---------------------- */
 const chartVC = new Chart(document.getElementById('chartVC'), {
     type: 'line',
@@ -1384,6 +1384,13 @@ const chartPF = new Chart(document.getElementById('chartPF'), {
     },
 });
 
+@else
+/* meter.charts not granted — the five live-chart canvases are not in the
+   DOM and their data path never runs (updateCharts early-returns). Inert
+   sentinels keep the shared code referencing them safe. */
+const chartVC = null, chartPow = null, chartEng = null, chartFrq = null, chartPF = null;
+@endif
+
 /* --- Chart 6: Monthly Consumption (horizontal bars) ----------------- */
 
 /**
@@ -1443,13 +1450,6 @@ const chartMonthly = monthlyCanvas ? new Chart(monthlyCanvas, {
         },
     },
 }) : null;
-@else
-/* meter.charts not granted — Chart.js is not loaded. Inert sentinels keep
-   every cross-reference (updateMonthlyChartCurrent, boot) safe without
-   scattering permission checks through the shared code paths. */
-const chartVC = null, chartPow = null, chartEng = null, chartFrq = null, chartPF = null;
-const chartMonthly = null, monthlyRows = [], CURRENT_PERIOD_START = null;
-@endif
 
 /* ═══════════════════════════════════════════════════════════════════════
  * 4. FORMATTING HELPERS
