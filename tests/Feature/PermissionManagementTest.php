@@ -93,7 +93,7 @@ class PermissionManagementTest extends TestCase
     public function test_detach_converts_a_bundle_into_editable_direct_grants(): void
     {
         $target = $this->consumer();
-        $this->assertTrue($target->can('meter.charts'));
+        $this->assertTrue($target->can('meter.history'));
 
         $this->actingAs($this->superAdmin())
             ->post(route('users.permissions.detach', $target), ['bundle' => 'consumer'])
@@ -102,16 +102,16 @@ class PermissionManagementTest extends TestCase
         $target = $target->fresh();
         $this->assertSame([], $target->roles->pluck('name')->all());
         // Same effective access, now as direct grants…
-        $this->assertTrue($target->can('meter.charts'));
+        $this->assertTrue($target->can('meter.history'));
         $this->assertTrue($target->can('dashboard.view'));
 
-        // …which makes the subtractive exception possible: consumer minus charts.
-        $direct = $target->permissions->pluck('name')->reject(fn ($p) => $p === 'meter.charts')->values()->all();
+        // …which makes the subtractive exception possible: consumer minus history.
+        $direct = $target->permissions->pluck('name')->reject(fn ($p) => $p === 'meter.history')->values()->all();
         $this->actingAs($this->superAdmin())
             ->patch(route('users.permissions.update', $target), ['direct' => $direct]);
 
         $target = $target->fresh();
-        $this->assertFalse($target->can('meter.charts'));
+        $this->assertFalse($target->can('meter.history'));
         $this->assertTrue($target->can('meter.live_data'));
     }
 

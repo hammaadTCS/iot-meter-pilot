@@ -90,8 +90,11 @@ class MeterSectionPermissionsTest extends TestCase
         $this->assertStringNotContainsString('chart.umd.min.js', $html);             // Chart.js not downloaded
         $this->assertStringNotContainsString('data-range="6h"', $html);              // range bar rides with 2/3
 
-        // Full consumer: everything renders, including the library.
+        // Consumer + the charts opt-in (charts left the consumer bundle on
+        // 2026-07-13 — super admin grants it per user): everything renders,
+        // including the library.
         $full = User::factory()->consumer()->create();
+        $full->givePermissionTo('meter.charts');
         $fullHtml = $this->actingAs($full)
             ->get(route('devices.dashboard', $this->meterOwnedBy($full)))
             ->assertOk()

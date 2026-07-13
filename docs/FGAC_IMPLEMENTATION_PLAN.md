@@ -167,7 +167,7 @@ creation are **unchanged from v1 §7** — that design was correct and is adopte
 
 | Bundle | Built-ins + |
 |---|---|
-| `consumer` *(default)* | `meter.access`, `meter.live_data`, `meter.charts`, `meter.history`, `meter.rename` |
+| `consumer` *(default)* | `meter.access`, `meter.live_data`, `meter.history`, `meter.rename` — **`meter.charts` deliberately excluded** (2026-07-13): it is a per-user opt-in the super admin grants directly |
 | `prosumer` | consumer + `meter.self_provision`, `devices.edit_own`, `devices.delete_own` |
 | `field_engineer` | `devices.view_any`, `devices.create`, `devices.edit_any`, `devices.assign_owner`, `api.devices.write` |
 | `fleet_operator` | `devices.view_any`, `dashboard.view_system_stats`, `alerts.view_any`, `alerts.fleet_scope`, `users.view_list`, `users.view_profile` |
