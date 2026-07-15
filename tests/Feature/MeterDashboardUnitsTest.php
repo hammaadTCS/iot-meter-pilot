@@ -28,10 +28,10 @@ class MeterDashboardUnitsTest extends TestCase
         parent::setUp();
 
         $this->withoutVite();
-        // Monthly panel + daily report are BASIC content (meter.access) —
-        // a plain consumer sees them; only the five live electrical charts
-        // need the meter.charts opt-in.
-        $this->user = User::factory()->consumer()->create();
+        // These tests cover the FULL operator dashboard's presentation, so the
+        // fixture holds meter.full_dashboard (prosumer bundle). Plain consumers
+        // get the simplified view — covered by MeterSimpleDashboardTest.
+        $this->user = User::factory()->prosumer()->create();
         $this->actingAs($this->user);
     }
 

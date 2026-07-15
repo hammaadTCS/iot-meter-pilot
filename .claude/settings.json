@@ -3,7 +3,31 @@
     "allow": [
       "Bash(grep -E \"\\\\.lock$|\\\\.log$|\\\\.env\")",
       "Bash(git rm *)",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git add *)",
+      "Bash(git commit -m 'docs: hybrid access-control implementation plan v2 + developer handbook *)",
+      "Bash(git commit --quiet -m 'Phase R: repository hygiene — remove dead controller, stray files, scratch docs *)",
+      "Bash(redis-cli ping *)",
+      "Bash(php -m)",
+      "Bash(docker run *)",
+      "Bash(docker exec *)",
+      "Bash(git commit --quiet -m 'Phase 0: Redis cache via predis, deduplicate env config *)",
+      "Bash(git commit --quiet -m 'Phase 1: install spatie/laravel-permission, HasRoles, Gate::before bypass *)",
+      "Bash(git commit --quiet -m 'Phase 2: permission catalog, grant bundles, legacy-role migration seeders *)",
+      "Bash(git commit --quiet -m 'Phase 3: registration mode flag — self-serve signups become consumers *)",
+      "Bash(git commit --quiet -m 'Phase 4: access management UI — bundles + direct grants per user *)",
+      "Bash(git commit --quiet -m 'docs: record FGAC phases R,0-4 as implemented — status ledger, run guide, handbook *)",
+      "Bash(php -l app/Http/Controllers/MeterAlertSettingsController.php)",
+      "Bash(sed -i \"s/User::factory\\(\\)->create\\(\\\\['role' => 'user'\\\\]\\)/User::factory\\(\\)->consumer\\(\\)->create\\(\\)/g; s/User::factory\\(\\)->create\\(\\\\['role' => 'admin'\\\\]\\)/User::factory\\(\\)->fleetOperator\\(\\)->create\\(\\)/g\" AlertsConsoleTest.php MeterAlertSettingsTest.php NotificationPreferencesTest.php)",
+      "Bash(sed -i \"s/User::factory\\(\\)->create\\(\\)/User::factory\\(\\)->consumer\\(\\)->create\\(\\)/g\" DailyConsumptionReportTest.php DeviceReadingConsumptionTest.php DeviceReadingsApiTest.php DeviceStatusApiTest.php MeterDashboardSelectionTest.php MeterDashboardUnitsTest.php MeterHealthViewsTest.php)",
+      "Bash(git commit --quiet -m 'Phase 5: enforcement cutover — permissions now gate every request *)",
+      "Bash(python3 -)",
+      "Bash(git commit --quiet -m 'Phase 6: view cutover — sections render only when their permission is granted *)",
+      "Bash(git commit --quiet -m 'meter.charts becomes a per-user opt-in — removed from the consumer bundle *)",
+      "Bash(git commit --quiet -m 'meter.charts gates only the five live charts — reporting panels are basic *)",
+      "Bash(git -C /home/hammaad/iot-meter-pilot log --format=\"%h %ad %s\" --date=short -8)",
+      "Bash(git -C /home/hammaad/iot-meter-pilot status --short)"
     ]
   }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Device;
 use App\Models\MeterDailyConsumption;
+use App\Models\MeterHourlyConsumption;
 use App\Models\MeterMonthlyConsumption;
 use App\Services\Meters\RangeConsumption;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
@@ -36,6 +37,14 @@ class DeviceReadingController extends Controller
     /** Rows per page returned by the table endpoint. */
     private const TABLE_PER_PAGE = 100;
 
+    /**
+     * Aggregate endpoint bucket rule: windows spanning at most this many hours
+     * are served as hour buckets; anything longer as day buckets. 48h keeps
+     * the largest hourly response at ~48 rows while giving the "24h"/"today"
+     * presets full hourly resolution.
+     */
+    private const HOURLY_BUCKET_MAX_HOURS = 48;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Private helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -56,16 +65,28 @@ class DeviceReadingController extends Controller
 
     /**
      * Resolve the time window from the request.
-     * Returns [$windowStart, $windowEnd] where $windowEnd is null for preset ranges.
-     * Returns null when a custom from/to pair is present but invalid.
+     * Returns [$windowStart, $windowEnd] where $windowEnd is null for "live"
+     * windows — preset ranges, and a custom `from` with no `to` (open-ended:
+     * everything from the start up to now).
+     * Returns null when a custom from/to is present but invalid.
      */
     private function resolveWindow(Request $request): ?array
     {
-        if ($request->filled('from') && $request->filled('to')) {
+        if ($request->filled('from')) {
             $start = rescue(fn () => Carbon::parse($request->query('from')), report: false);
-            $end   = rescue(fn () => Carbon::parse($request->query('to')),   report: false);
 
-            if (! $start || ! $end || $end->lte($start)) {
+            if (! $start) {
+                return null;
+            }
+
+            // No end given → open-ended window, up to now (live).
+            if (! $request->filled('to')) {
+                return [$start, null];
+            }
+
+            $end = rescue(fn () => Carbon::parse($request->query('to')), report: false);
+
+            if (! $end || $end->lte($start)) {
                 return null;
             }
 
@@ -242,6 +263,9 @@ class DeviceReadingController extends Controller
     {
         $this->authorize('view', $device);
         abort_unless($request->user()->can('meter.access') && $request->user()->can('meter.history'), 403, 'Missing meter.history permission.');
+        // Raw minute-level rows belong to the full operator dashboard only —
+        // simplified-dashboard users read hour/day buckets via aggregate().
+        abort_unless($request->user()->hasFullMeterDashboard(), 403, 'Raw readings require the full meter dashboard.');
 
         $window = $this->resolveWindow($request);
         if (! $window) {
@@ -301,6 +325,145 @@ class DeviceReadingController extends Controller
                 'total'        => $total,
             ],
         ]);
+    }
+
+    /**
+     * Aggregate history endpoint — GET /api/devices/{device}/readings/aggregate
+     *
+     * The simplified consumer dashboard's historical feed: pre-aggregated
+     * hour/day buckets (units consumed + average voltage/power), never raw
+     * minute-level rows. Reads only the incrementally-maintained rollups
+     * (meter_hourly_consumption / meter_daily_consumption) — O(buckets), no
+     * raw-readings scan, so it is safe on the 30s poll at fleet scale.
+     *
+     * Bucket resolution is chosen server-side: windows spanning at most
+     * HOURLY_BUCKET_MAX_HOURS are served hourly, longer windows daily. A
+     * short window older than the hourly retention (rows pruned) degrades
+     * gracefully to day buckets. Day-bucket averages are derived from the
+     * hour rows' exact sum/count accumulators (Σsum/Σcount), so they are
+     * true means, not means-of-means; days beyond hourly retention keep
+     * their units but report null averages.
+     *
+     * Guarded by meter.access + meter.history: this IS the history section
+     * for simplified-dashboard users. Accepts the same window params as the
+     * chart/table endpoints:
+     *
+     *   ?range=1h|6h|24h|today|7d|30d|all   (preset window)
+     *   ?from=<ISO>&to=<ISO>                 (custom window; omit `to` for
+     *                                         open-ended "up to now", live)
+     */
+    public function aggregate(Request $request, Device $device): JsonResponse
+    {
+        $this->authorize('view', $device);
+        abort_unless($request->user()->can('meter.access') && $request->user()->can('meter.history'), 403, 'Missing meter.history permission.');
+
+        $window = $this->resolveWindow($request);
+        if (! $window) {
+            return response()->json(['error' => 'Invalid from/to range.'], 422);
+        }
+
+        [$windowStart, $windowEnd] = $window;
+        $effectiveEnd = $windowEnd ?? now();
+
+        $bucket = $windowStart->diffInHours($effectiveEnd) <= self::HOURLY_BUCKET_MAX_HOURS
+            ? 'hour'
+            : 'day';
+
+        $buckets = $bucket === 'hour'
+            ? $this->hourBuckets($device->id, $windowStart, $effectiveEnd)
+            : $this->dayBuckets($device->id, $windowStart, $effectiveEnd);
+
+        // Hour rows are pruned after the retention window; a short window that
+        // far back still has its day rollups (kept forever), so fall back.
+        if ($bucket === 'hour' && $buckets->isEmpty()) {
+            $fallback = $this->dayBuckets($device->id, $windowStart, $effectiveEnd);
+
+            if ($fallback->isNotEmpty()) {
+                $bucket  = 'day';
+                $buckets = $fallback;
+            }
+        }
+
+        return response()->json([
+            'bucket'  => $bucket,
+            'from'    => $windowStart->toDateTimeString(),
+            'to'      => $windowEnd?->toDateTimeString(),
+            'buckets' => $buckets,
+        ]);
+    }
+
+    /**
+     * Hour buckets for the window, oldest-first. The window is widened to the
+     * enclosing hour boundaries so a 14:30 start still includes the 14:00
+     * bucket the consumer would expect to see.
+     *
+     * @return \Illuminate\Support\Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
+     */
+    private function hourBuckets(int $deviceId, Carbon $start, Carbon $end)
+    {
+        return MeterHourlyConsumption::query()
+            ->where('device_id', $deviceId)
+            ->where('period_start', '>=', $start->copy()->startOfHour())
+            ->where('period_start', '<=', $end)
+            ->orderBy('period_start')
+            ->get()
+            ->map(fn (MeterHourlyConsumption $row) => [
+                'period'      => $row->period_start->format('Y-m-d H:i:s'),
+                'units_kwh'   => (float) $row->units_kwh,
+                'avg_voltage' => $row->averageVoltage(),
+                'avg_power'   => $row->averagePower(),
+            ])
+            ->values();
+    }
+
+    /**
+     * Day buckets for the window, oldest-first. Units come from the daily
+     * rollup (the authoritative, never-pruned record); averages are derived
+     * from the hour rows' accumulators grouped per calendar day.
+     *
+     * @return \Illuminate\Support\Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
+     */
+    private function dayBuckets(int $deviceId, Carbon $start, Carbon $end)
+    {
+        $startDate = $start->copy()->startOfDay();
+
+        // Σsum/Σcount per calendar day — exact means over the hour accumulators.
+        // DATE() yields 'YYYY-MM-DD' on both MySQL and SQLite.
+        $averagesByDay = DB::table('meter_hourly_consumption')
+            ->where('device_id', $deviceId)
+            ->where('period_start', '>=', $startDate)
+            ->where('period_start', '<=', $end)
+            ->groupByRaw('DATE(period_start)')
+            ->selectRaw(
+                'DATE(period_start) as day,'
+                .' SUM(voltage_sum) as v_sum, SUM(voltage_count) as v_count,'
+                .' SUM(power_sum) as p_sum, SUM(power_count) as p_count'
+            )
+            ->get()
+            ->keyBy('day');
+
+        return MeterDailyConsumption::query()
+            ->where('device_id', $deviceId)
+            ->whereDate('period_date', '>=', $startDate->toDateString())
+            ->whereDate('period_date', '<=', $end->toDateString())
+            ->orderBy('period_date')
+            ->get()
+            ->map(function (MeterDailyConsumption $row) use ($averagesByDay) {
+                $day = $row->period_date->format('Y-m-d');
+                $avg = $averagesByDay->get($day);
+
+                return [
+                    'period'      => $day,
+                    'units_kwh'   => (float) $row->units_kwh,
+                    'avg_voltage' => ($avg && (int) $avg->v_count > 0)
+                        ? round((float) $avg->v_sum / (int) $avg->v_count, 1)
+                        : null,
+                    'avg_power'   => ($avg && (int) $avg->p_count > 0)
+                        ? round((float) $avg->p_sum / (int) $avg->p_count, 1)
+                        : null,
+                ];
+            })
+            ->values();
     }
 
     /**

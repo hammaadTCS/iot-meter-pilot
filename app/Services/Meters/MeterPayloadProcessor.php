@@ -5,6 +5,7 @@ namespace App\Services\Meters;
 use App\Models\Device;
 use App\Models\LatestMeterState;
 use App\Models\MeterDailyConsumption;
+use App\Models\MeterHourlyConsumption;
 use App\Models\MeterMonthlyConsumption;
 use App\Models\MeterReading;
 use Illuminate\Support\Carbon;
@@ -179,6 +180,20 @@ class MeterPayloadProcessor
                         (int) $energyPzemWh,
                         $receivedAt,
                         (int) $reading->id,
+                    );
+
+                    /*
+                     * And the per-hour aggregate — the data source for the
+                     * simplified consumer dashboard's historical view. Same
+                     * transaction, same forward-moving + energy-present guard,
+                     * plus voltage/power accumulators for read-time averages.
+                     */
+                    $this->updateHourlyConsumption(
+                        $device,
+                        (int) $energyPzemWh,
+                        $receivedAt,
+                        (int) $reading->id,
+                        $validation->measurements,
                     );
                 }
 
@@ -373,6 +388,78 @@ class MeterPayloadProcessor
             }
 
             $row->last_energy_wh = $energyWh;
+        }
+
+        $row->last_reading_id = $readingId;
+        $row->last_reading_at = $receivedAt;
+        $row->recomputeUnits();
+        $row->save();
+
+        return (float) $row->units_kwh;
+    }
+
+    /**
+     * Fold one promoted reading into its clock-hour consumption aggregate.
+     *
+     * The per-hour counterpart of updateDailyConsumption(), maintained in the
+     * same ingestion transaction so hourly, daily and monthly figures stay
+     * consistent. Identical baseline-chaining and reset (rollover) rules, one
+     * granularity up, with one addition: voltage/power are accumulated as
+     * exact sums + counts so the simplified consumer dashboard can show
+     * per-hour averages (and derive per-day averages as Σsum/Σcount) without
+     * ever touching raw readings. Each metric keeps its own count because the
+     * payload validator allows either field to be independently absent.
+     *
+     * Returns the hour's units (kWh) for symmetry/testing; nothing caches it.
+     */
+    protected function updateHourlyConsumption(
+        Device $device,
+        int $energyWh,
+        Carbon $receivedAt,
+        int $readingId,
+        array $measurements,
+    ): float {
+        $periodStart = $receivedAt->copy()->startOfHour()->toDateTimeString();
+
+        $row = MeterHourlyConsumption::where('device_id', $device->id)
+            ->where('period_start', $periodStart)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $row) {
+            $previous = MeterHourlyConsumption::where('device_id', $device->id)
+                ->where('period_start', '<', $periodStart)
+                ->orderByDesc('period_start')
+                ->first();
+
+            $baseline = $previous?->last_energy_wh ?? $energyWh;
+
+            if ($previous && $previous->finalized_at === null) {
+                $previous->forceFill(['finalized_at' => $receivedAt])->save();
+            }
+
+            $row = new MeterHourlyConsumption;
+            $row->device_id = $device->id;
+            $row->period_start = $periodStart;
+            $row->baseline_energy_wh = $baseline;
+            $row->last_energy_wh = $energyWh;
+            $row->rollover_wh = 0;
+        } else {
+            if ($energyWh < (int) $row->last_energy_wh) {
+                $row->rollover_wh = (int) $row->rollover_wh + (int) $row->last_energy_wh;
+            }
+
+            $row->last_energy_wh = $energyWh;
+        }
+
+        if (($voltage = $measurements['voltage'] ?? null) !== null) {
+            $row->voltage_sum   = (float) $row->voltage_sum + (float) $voltage;
+            $row->voltage_count = (int) $row->voltage_count + 1;
+        }
+
+        if (($power = $measurements['power'] ?? null) !== null) {
+            $row->power_sum   = (float) $row->power_sum + (float) $power;
+            $row->power_count = (int) $row->power_count + 1;
         }
 
         $row->last_reading_id = $readingId;

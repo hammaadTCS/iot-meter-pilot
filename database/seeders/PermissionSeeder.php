@@ -52,6 +52,12 @@ class PermissionSeeder extends Seeder
         'meter.live_data',
         'meter.charts',
         'meter.history',
+        // Full-resolution operator dashboard (raw minute-level readings).
+        // Without it a meter.access user gets the SIMPLIFIED dashboard:
+        // 4 KPI tiles + hour/day aggregated history. Product decision
+        // 2026-07-14. (meter.charts also implies the full dashboard — see
+        // User::hasFullMeterDashboard().)
+        'meter.full_dashboard',
         // Alerts
         'alerts.view_any',
         'alerts.fleet_scope',
@@ -89,6 +95,7 @@ class PermissionSeeder extends Seeder
             'meter.history',
             'meter.rename',
             'meter.self_provision',
+            'meter.full_dashboard',
             'devices.edit_own',
             'devices.delete_own',
         ],

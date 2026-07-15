@@ -84,12 +84,17 @@ class MeterSectionPermissionsTest extends TestCase
         // Markers are exact HTML fragments unique to each section's markup —
         // class names/ids alone would false-positive on the CSS/JS blocks,
         // which render for every user.
+        //
+        // Without meter.full_dashboard (or the meter.charts opt-in) this user
+        // lands on the SIMPLIFIED dashboard (2026-07-14): live tiles granted
+        // by meter.live_data, no raw sections, and no history drill-down
+        // because meter.history is absent.
         $this->assertStringContainsString('<div class="kpi-grid">', $html);          // Section 1 granted
-        $this->assertStringContainsString('Monthly Consumption', $html);             // reporting is basic (meter.access)
-        $this->assertStringContainsString('Daily Breakdown', $html);                 // reporting is basic (meter.access)
+        $this->assertStringContainsString('id="kpi-voltage"', $html);                // simplified live tiles
+        $this->assertStringNotContainsString('id="historyExpander"', $html);         // history drill-down needs meter.history
         $this->assertStringNotContainsString('id="chartVC"', $html);                 // live charts absent (opt-in)
         $this->assertStringNotContainsString('<tbody id="readings-body">', $html);   // Section 3 absent
-        $this->assertStringNotContainsString('data-range="6h"', $html);              // range bar rides with 2/3
+        $this->assertStringNotContainsString('data-range="6h"', $html);              // full range bar rides with 2/3
 
         // Consumer + the charts opt-in (super admin grants meter.charts per
         // user): the five live charts appear on top of the basic content.

@@ -23,7 +23,10 @@ class MeterHealthViewsTest extends TestCase
 
         $this->withoutVite();
         Carbon::setTestNow('2026-04-21 12:00:00');
-        $this->user = User::factory()->consumer()->create();
+        // Dashboard assertions here target the FULL operator dashboard
+        // (prosumer bundle carries meter.full_dashboard); the simplified
+        // consumer view is covered by MeterSimpleDashboardTest.
+        $this->user = User::factory()->prosumer()->create();
         $this->actingAs($this->user);
     }
 
