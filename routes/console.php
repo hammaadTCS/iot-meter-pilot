@@ -32,6 +32,13 @@ Schedule::command('meters:prune-ingestion-events --days=30')
     ->daily()
     ->withoutOverlapping();
 
+// Retention for the per-hour consumption rollup (simplified-dashboard data
+// source). Day/month rollups are never pruned; windows older than this fall
+// back to day buckets in the aggregate endpoint.
+Schedule::command('meters:prune-hourly-consumption --days=180')
+    ->dailyAt('01:10')
+    ->withoutOverlapping();
+
 // Retention for the alert/notification subsystem.
 Schedule::command('alerts:prune')
     ->dailyAt('02:30')

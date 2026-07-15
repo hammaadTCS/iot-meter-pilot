@@ -22,7 +22,9 @@ class DeviceReadingsApiTest extends TestCase
         parent::setUp();
 
         Carbon::setTestNow('2026-04-21 12:00:00');
-        $this->user = User::factory()->consumer()->create();
+        // Raw readings are a full-dashboard feature (meter.full_dashboard);
+        // plain consumers read hour/day aggregates instead.
+        $this->user = User::factory()->prosumer()->create();
         $this->actingAs($this->user, 'sanctum');
     }
 

@@ -34,10 +34,50 @@ class DeviceDashboardController extends Controller
             ]);
         }
 
+        // Dashboard split (product decision 2026-07-14): meter.full_dashboard
+        // (or the meter.charts opt-in) gets the full operator dashboard; every
+        // other meter.access holder gets the simplified consumer dashboard —
+        // 4 KPI tiles with historical data behind a click, served as hour/day
+        // aggregates. The raw-readings APIs enforce the same predicate.
         return match ($device->type) {
-            'meter'  => $this->showMeter($device),
+            'meter'  => Auth::user()->hasFullMeterDashboard()
+                ? $this->showMeter($device)
+                : $this->showMeterSimple($device),
             default  => view('devices.dashboards.placeholder', compact('device')),
         };
+    }
+
+    /**
+     * Simplified consumer dashboard: Voltage, Power, Monthly Units and Daily
+     * Units tiles, plus a collapsed "History & Range" section that loads
+     * hour/day aggregate buckets on demand. Every figure is served from the
+     * cached latest state or the incrementally-maintained rollups — this view
+     * never touches raw readings, in rendering or in the APIs it polls.
+     */
+    private function showMeterSimple(Device $device): View
+    {
+        $device->load('latestState');
+
+        // Today's units from the daily rollup (maintained at ingest, so the
+        // seed is current). Refreshed client-side from the daily report API.
+        $todayUnits = MeterDailyConsumption::where('device_id', $device->id)
+            ->whereDate('period_date', now()->toDateString())
+            ->value('units_kwh');
+
+        $user = Auth::user();
+
+        return view('devices.dashboards.meter-simple', [
+            // Section visibility mirrors the full dashboard's slugs: live_data
+            // gates the KPI tiles, history gates the drill-down (whose API,
+            // aggregate(), enforces the same slug server-side).
+            'canViewLiveData'    => $user->can('meter.live_data'),
+            'canViewHistory'     => $user->can('meter.history'),
+            'device'             => $device,
+            'currentSnapshot'    => $device->currentSnapshot(),
+            'deviceAvailability' => $device->availabilitySnapshot(),
+            'deviceIssue'        => $device->issueSnapshot(),
+            'todayUnits'         => $todayUnits !== null ? (float) $todayUnits : null,
+        ]);
     }
 
     private function showMeter(Device $device): View

@@ -478,37 +478,41 @@ extended by [...add_super_admin_to_role_enum.php](database/migrations/2026_05_11
 Three helper methods on [User.php:74-93](app/Models/User.php#L74-L93):
 `isSuperAdmin()`, `isAdminOrAbove()`, `isAdmin()` (alias of the previous).
 
-**Where roles are enforced — three layers:**
+**Where access is enforced — three layers (permission slugs since the
+2026-07-13 FGAC cutover):**
 
-1. **Route middleware** — [AdminMiddleware](app/Http/Middleware/AdminMiddleware.php)
-   and [SuperAdminMiddleware](app/Http/Middleware/SuperAdminMiddleware.php),
-   registered under the aliases `admin` / `superadmin` in
-   [bootstrap/app.php:17-20](bootstrap/app.php#L17-L20), applied in
-   [routes/web.php:53-66](routes/web.php#L53-L66): the whole `/users/*` area is
-   admin+, while deleting users and changing roles is super-admin only.
-2. **Policy** — [DevicePolicy](app/Policies/DevicePolicy.php) (registered in
-   [AppServiceProvider](app/Providers/AppServiceProvider.php)): owner **or**
-   admin+ may view/update/delete a device. Controllers invoke it with
-   `$this->authorize('view', $device)`.
+1. **Route middleware** — `permission:<slug>` middleware in
+   [routes/web.php](routes/web.php) (the `/users/*` area: `users.view_list`,
+   `users.create`, `users.edit`, `users.view_profile`,
+   `users.manage_permissions`) and [routes/api.php](routes/api.php)
+   (`api.devices.read/write`, `api.readings.read`). Deleting users remains
+   hard-locked to `super_admin`.
+2. **Policy** — [DevicePolicy](app/Policies/DevicePolicy.php): pure
+   permission + ownership predicates (e.g. `update` = `devices.edit_any` ∨
+   (`devices.edit_own` ∧ owner) ∨ name-only via `meter.rename`). Controllers
+   invoke it with `$this->authorize('view', $device)`; meter dashboards and
+   readings APIs add their `meter.*` section checks on top.
 3. **Query scoping** — lists never *fetch* what you shouldn't see:
    `Device::forUser($user)` ([Device.php:61-64](app/Models/Device.php#L61-L64))
    and `AlertEvent::visibleTo($user)` ([AlertEvent.php scopeVisibleTo](app/Models/AlertEvent.php))
-   filter by ownership unless the user is admin+.
+   filter by ownership unless the user holds `devices.view_any` /
+   `alerts.view_any`.
 
-> **⚠️ Hybrid FGAC migration IN PROGRESS (2026-07-10, phases R,0–4 done):** the role
-> checks above still enforce everything, but a parallel permission system is now fully
-> populated alongside them — `spatie/laravel-permission` with a 29-slug catalog
-> ([PermissionSeeder](database/seeders/PermissionSeeder.php), the single source of
-> truth) and 5 **grant bundles** (consumer / prosumer / field_engineer /
-> fleet_operator / super_admin). Super admins manage per-user access at
+> **✅ Hybrid FGAC is LIVE (phases R,0–6 done; cutover 2026-07-13; simplified
+> consumer dashboard + `meter.full_dashboard` added 2026-07-14):** permission
+> slugs are the sole enforcement — `spatie/laravel-permission` with a 30-slug
+> catalog ([PermissionSeeder](database/seeders/PermissionSeeder.php), the single
+> source of truth) and 5 **grant bundles** (consumer / prosumer /
+> field_engineer / fleet_operator / super_admin). Per-user access is managed at
 > `/users/{user}/permissions` ([PermissionController](app/Http/Controllers/PermissionController.php));
-> user create forms assign bundles, not roles; self-registration assigns `consumer`
-> (`AUTH_ALLOW_REGISTRATION`). A `Gate::before` bypass in
-> [AppServiceProvider](app/Providers/AppServiceProvider.php) makes `super_admin`
-> pass every check. The Phase 5 cutover will swap the legacy checks for `can()`
-> calls — plan + status ledger in
-> [docs/FGAC_IMPLEMENTATION_PLAN.md](docs/FGAC_IMPLEMENTATION_PLAN.md), matrix in
-> [docs/FGAC_FEATURES_PERMISSIONS.csv](docs/FGAC_FEATURES_PERMISSIONS.csv).
+> self-registration assigns `consumer` (`AUTH_ALLOW_REGISTRATION`). A
+> `Gate::before` bypass in [AppServiceProvider](app/Providers/AppServiceProvider.php)
+> makes `super_admin` pass every check. The legacy `role` column and
+> admin middlewares still exist but are dead weight until Phase 7 removes them.
+> **Admin guide (every slug, every bundle, recipes):
+> [docs/PERMISSIONS_HANDBOOK.md](docs/PERMISSIONS_HANDBOOK.md)** · engineering
+> plan + status ledger: [docs/FGAC_IMPLEMENTATION_PLAN.md](docs/FGAC_IMPLEMENTATION_PLAN.md)
+> · raw matrix: [docs/FGAC_FEATURES_PERMISSIONS.csv](docs/FGAC_FEATURES_PERMISSIONS.csv).
 
 **User management screens** — [UserManagementController](app/Http/Controllers/UserManagementController.php)
 + views in [resources/views/users/](resources/views/users/). **Profile** —

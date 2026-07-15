@@ -43,8 +43,9 @@ changes. Only two authorization *predicates* in the alert pipeline are swapped
 | 2 — Catalog, bundles, user migration | ✅ DONE | `6291f4a` | 2026-07-10 |
 | 3 — Registration mode (D1) | ✅ DONE | `f6aa88e` | 2026-07-10 |
 | 4 — Access management UI | ✅ DONE | `396258f` | 2026-07-10 |
-| 5 — Enforcement cutover | ⏳ NEXT (awaiting browser review of Phase 4) | | |
-| 6 — View cutover | pending | | |
+| 5 — Enforcement cutover | ✅ DONE | `21e0b7a` | 2026-07-13 |
+| 6 — View cutover | ✅ DONE | `dfab8cf` (+ `da16779`, `f20a55b`: meter.charts → per-user opt-in, reporting panels basic) | 2026-07-13 |
+| 6b — Simplified consumer dashboard | ✅ DONE | (2026-07-14, see §3.4) | 2026-07-14 |
 | 7 — Legacy removal | pending | | |
 | 8 — Guardrails + docs | pending | | |
 
@@ -187,6 +188,31 @@ can('meter.charts') → Gate::before: hasRole('super_admin')? → allow
 
 `DevicePolicy` combines permission + ownership (e.g. `update` =
 `devices.edit_any` ∨ (`devices.edit_own` ∧ owner) ∨ name-only path via `meter.rename`).
+
+### 3.4 Simplified consumer dashboard (`meter.full_dashboard`, 2026-07-14)
+
+Product decision: consumers get a **simplified** meter dashboard — four KPI tiles
+(Voltage, Power, Monthly Units, Daily Units) plus a collapsed "Usage History"
+section that expands on click and shows **hour/day aggregate buckets** (units +
+avg voltage/power), never raw minute-level rows.
+
+- New catalog slug **`meter.full_dashboard`** = the full-resolution operator
+  dashboard. In the `prosumer` bundle; NOT in `consumer`. `meter.charts` also
+  implies the full dashboard (its five charts only exist there), so pre-existing
+  charts opt-ins keep working — single predicate: `User::hasFullMeterDashboard()`.
+- `DeviceDashboardController` routes on that predicate: full → `meter.blade.php`,
+  otherwise → `meter-simple.blade.php`.
+- Data source: `meter_hourly_consumption` rollup (same incremental lifecycle as
+  daily/monthly, plus exact V/W sum/count accumulators), maintained by
+  `MeterPayloadProcessor::updateHourlyConsumption()`, backfilled by
+  `meters:backfill-hourly-consumption`, pruned at 180 days by
+  `meters:prune-hourly-consumption` (windows past retention degrade to day buckets).
+- API symmetry: new `GET /readings/aggregate` (guards `meter.access` +
+  `meter.history`; ≤48h windows → hour buckets, longer → day buckets); the raw
+  `GET /readings` index now ALSO requires `hasFullMeterDashboard()` — a consumer
+  cannot fetch minute rows by hand-crafting requests.
+- Suite: `MeterSimpleDashboardTest` covers the rollup lifecycle, the endpoint
+  gating/bucketing, and the view split.
 
 ---
 

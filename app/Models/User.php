@@ -70,6 +70,25 @@ class User extends Authenticatable
     }
 
     /**
+     * Which meter dashboard does this user get?
+     *
+     * Full (raw minute-level interface) when the user holds
+     * meter.full_dashboard — granted by the prosumer bundle or directly.
+     * meter.charts also implies full: the five live charts it unlocks only
+     * exist on the full dashboard, so a charts opt-in granted before
+     * meter.full_dashboard existed keeps working unchanged. Everyone else
+     * gets the simplified consumer dashboard (4 KPIs + hour/day history).
+     *
+     * The raw readings APIs enforce this same predicate server-side
+     * (DeviceReadingController), so the view split is a security boundary,
+     * not just presentation.
+     */
+    public function hasFullMeterDashboard(): bool
+    {
+        return $this->can('meter.full_dashboard') || $this->can('meter.charts');
+    }
+
+    /**
      * Check if user is a super admin.
      */
     public function isSuperAdmin(): bool

@@ -41,6 +41,7 @@ hourly         alerts:scan-consumption         budget + usage-anomaly alerts (fr
 daily 00:10    meters:close-day                finalise ended daily consumption rows
 daily 00:15    meters:close-month              finalise ended monthly consumption rows
 daily 00:00    meters:prune-ingestion-events   retention for the ingestion audit log
+daily 01:10    meters:prune-hourly-consumption retention (180d) for the hourly rollup (simplified dashboard)
 daily 02:30    alerts:prune                    retention for notifications/alerts/buffer
 ```
 

@@ -42,6 +42,7 @@ php artisan db:seed --class=MigrateRolesToPermissionsSeeder
 # one-time, if you have historical readings and just added the rollups:
 php artisan meters:backfill-daily-consumption
 php artisan meters:backfill-monthly-consumption
+php artisan meters:backfill-hourly-consumption   # simplified-dashboard hour buckets (last 180d)
 # optional demo users:
 php artisan db:seed
 ```
