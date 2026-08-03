@@ -27,7 +27,31 @@
       "Bash(git commit --quiet -m 'meter.charts becomes a per-user opt-in — removed from the consumer bundle *)",
       "Bash(git commit --quiet -m 'meter.charts gates only the five live charts — reporting panels are basic *)",
       "Bash(git -C /home/hammaad/iot-meter-pilot log --format=\"%h %ad %s\" --date=short -8)",
-      "Bash(git -C /home/hammaad/iot-meter-pilot status --short)"
+      "Bash(git -C /home/hammaad/iot-meter-pilot status --short)",
+      "Bash(python3 -c \"import openpyxl; print\\('openpyxl', openpyxl.__version__\\)\")",
+      "Bash(python3 -m pip --version)",
+      "Bash(python3 -m venv --help)",
+      "Bash(unzip -l Weekly_Tasks_-_Software___IoT_Teams.xlsx)",
+      "Bash(unzip -p Weekly_Tasks_-_Software___IoT_Teams.xlsx xl/workbook.xml)",
+      "Bash(unzip -p /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx xl/_rels/workbook.xml.rels)",
+      "Bash(python3 dump.py xl/worksheets/sheet2.xml)",
+      "Bash(python3 -c ' *)",
+      "Bash(git status *)",
+      "Bash(echo \"exit:$?\")",
+      "Bash(python3 build.py)",
+      "Bash(which soffice *)",
+      "Read(//usr/lib/libreoffice/program/**)",
+      "Bash(rm -rf lo)",
+      "Bash(mkdir -p lo)",
+      "Bash(timeout 180 soffice --headless --norestore -env:UserInstallation=file:///tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/loprofile --convert-to csv:\"Text - txt - csv \\(StarCalc\\)\":\"44,34,76,1,,0,false,true,true,false,false,1\" --outdir lo out.xlsx)",
+      "Bash(rm -rf lo2)",
+      "Bash(mkdir -p lo2)",
+      "Bash(timeout 180 soffice --headless --norestore -env:UserInstallation=file:///tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/loprofile --convert-to csv:\"Text - txt - csv \\(StarCalc\\)\":\"44,34,76,1,,0,false,true,true,false,false,-1\" --outdir lo2 out.xlsx)",
+      "Bash(cp -p /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx ./ORIGINAL_backup_Weekly_Tasks.xlsx)",
+      "Bash(cp out.xlsx /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx)",
+      "Bash(rm -f /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/lo2/ORIGINAL_backup_Weekly_Tasks.xlsx)",
+      "Bash(cp -p /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/ORIGINAL_backup_Weekly_Tasks.xlsx)",
+      "Bash(cp /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/out.xlsx /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx)"
     ]
   }
 }

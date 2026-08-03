@@ -198,6 +198,67 @@ class MeterSimpleDashboardTest extends TestCase
             ->assertStatus(422);
     }
 
+    /**
+     * A single-day selection — the same date picked in both range fields, which
+     * the dashboard expands to 00:00:00 → 23:59:59 — must be accepted and served
+     * as HOUR buckets, so a consumer can drill into one day hour by hour. This is
+     * the case the old `to <= from` guard made impossible.
+     */
+    public function test_aggregate_accepts_a_whole_single_day_window_as_hour_buckets(): void
+    {
+        $consumer = User::factory()->consumer()->create();
+        $device = $this->createMeter($consumer);
+
+        Carbon::setTestNow('2026-07-14 10:10:00');
+        $this->send($device, ts: 1000, energy: 10000);
+        Carbon::setTestNow('2026-07-14 15:05:00');
+        $this->send($device, ts: 1100, energy: 10700);
+
+        Carbon::setTestNow('2026-07-15 09:00:00');
+
+        $response = $this->actingAs($consumer, 'sanctum')
+            ->getJson("/api/devices/{$device->id}/readings/aggregate"
+                .'?from=2026-07-14%2000:00:00&to=2026-07-14%2023:59:59')
+            ->assertOk()
+            ->json();
+
+        // ~24h window sits under HOURLY_BUCKET_MAX_HOURS (48) → hourly resolution.
+        $this->assertSame('hour', $response['bucket']);
+        $this->assertCount(2, $response['buckets']);
+        $this->assertSame('2026-07-14 10:00:00', $response['buckets'][0]['period']);
+        $this->assertSame('2026-07-14 15:00:00', $response['buckets'][1]['period']);
+    }
+
+    /**
+     * An equal-instant window is zero-width, not an error: it answers with no
+     * buckets / zero units. Only a genuinely inverted window is rejected.
+     */
+    public function test_equal_from_and_to_is_a_zero_width_window_not_an_error(): void
+    {
+        $consumer = User::factory()->consumer()->create();
+        $device = $this->createMeter($consumer);
+
+        Carbon::setTestNow('2026-07-14 10:10:00');
+        $this->send($device, ts: 1000, energy: 10000);
+
+        Carbon::setTestNow('2026-07-14 12:00:00');
+        $this->actingAs($consumer, 'sanctum');
+
+        $this->getJson("/api/devices/{$device->id}/readings/aggregate"
+            .'?from=2026-07-14%2010:00:00&to=2026-07-14%2010:00:00')
+            ->assertOk();
+
+        $this->getJson("/api/devices/{$device->id}/readings/consumption"
+            .'?from=2026-07-14%2010:00:00&to=2026-07-14%2010:00:00')
+            ->assertOk()
+            ->assertJsonPath('units_kwh', 0);
+
+        // …while an inverted window is still a 422.
+        $this->getJson("/api/devices/{$device->id}/readings/consumption"
+            .'?from=2026-07-14%2012:00:00&to=2026-07-14%2010:00:00')
+            ->assertStatus(422);
+    }
+
     public function test_aggregate_enforces_meter_history_and_raw_readings_stay_operator_only(): void
     {
         $consumer = User::factory()->consumer()->create();

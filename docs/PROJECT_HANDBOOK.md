@@ -716,6 +716,11 @@ slow ingestion (all scheduled, all read derived tables), alerts are
 **coalesced** (a 50-meter outage = ONE email per user, not 50), and recipients/
 channels are user-configurable.
 
+> **Every condition the platform can detect — the shipped alert types, the
+> designed-but-unbuilt availability alerts, and the deferred backlog — is
+> catalogued in [docs/ALERT_CATALOG.md](docs/ALERT_CATALOG.md).** This section
+> explains the machinery; that document is the list.
+
 ```
 DETECT (scheduled commands)          DECIDE WHO           COALESCE            DELIVER
 ─────────────────────────           ───────────          ─────────           ────────
@@ -731,10 +736,11 @@ ScanConsumptionAlerts (1 hr) ──┘   AlertResolved      Delivery            
 **Stage 1 — Detectors** (all in [app/Console/Commands/](app/Console/Commands/)):
 
 - [ScanMeterHealth](app/Console/Commands/ScanMeterHealth.php) — telemetry
-  freshness + availability: opens `telemetry_stale` (warning),
-  `telemetry_down` (critical), `availability_offline`; auto-resolves when data
-  returns. Respects the per-meter `offline_enabled` opt-out. Chunks devices
-  100 at a time so it scales.
+  freshness: opens `telemetry_stale` (warning) and `telemetry_down` (critical);
+  auto-resolves when data returns. Respects the per-meter `offline_enabled`
+  opt-out. Chunks devices 100 at a time so it scales. (Alerting on the MQTT
+  *availability* topic is designed but **not yet built** — see
+  [docs/ALERT_CATALOG.md](docs/ALERT_CATALOG.md) §3.)
 - [ScanThresholdAlerts](app/Console/Commands/ScanThresholdAlerts.php) —
   electrical limits (over/under-voltage, max power, min power-factor) against
   the **latest cached state** only. Uses **hysteresis**: a check must breach

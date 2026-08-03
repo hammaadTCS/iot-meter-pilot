@@ -37,7 +37,24 @@ No new alert types here; purely how alerts get out. All additive.
 | Horizontal Reverb / managed pusher | concurrent WebSocket connections near node limit | infra/driver change |
 | Digest window tuning | first observed correlated burst | a number |
 
-## 3. Noted, deliberately deferred
+## 3. Availability alerts — NEXT, designed and ready to build
+**Full spec:** `docs/ALERT_CATALOG.md` §3 · **Catalog of every alert type:** `docs/ALERT_CATALOG.md`
+
+The MQTT availability topic went live 2026-07-24 and its data is arriving but
+unconsumed — it drives a UI pill and a live broadcast, nothing else. Four new alert
+types are specified: `availability_offline` (explicit LWT — certain, and ~10× faster
+than `telemetry_down`), `availability_silent` (broker connected but telemetry dead —
+**not detectable any other way today**), `availability_never_reported`, and
+`availability_unclassified`.
+
+The one real design decision is precedence: an availability signal, when present,
+owns the "is it reachable?" question and suppresses the `telemetry_*` alerts, so one
+incident never produces three alerts. Meters with no availability topic are
+unaffected. Implementation extends `ScanMeterHealth` (which already owns reachability
+and its precedence rules) rather than adding a racing command; the per-meter
+`offline_enabled` opt-out is reused, so there is no migration.
+
+## 4. Noted, deliberately deferred
 - Real mail transport (`MAIL_MAILER=log` today — bell works without it; email needs SES/Postmark).
 - New device types (AC/switch/water): add a payload processor + a detector; `alert_events` and the delivery
   pipeline need no changes. Readings-table strategy decision noted in `docs/erd.md`.

@@ -4,10 +4,10 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\LatestMeterState;
+use App\Models\MeterDailyConsumption;
 use App\Models\MeterMonthlyConsumption;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\DB;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use Tests\TestCase;
 
@@ -114,24 +114,31 @@ class MeterDashboardUnitsTest extends TestCase
             ->assertDontSee('id="chartMonthly"', false);        // canvas omitted
     }
 
-    public function test_dashboard_seeds_range_units_card_for_the_default_hour(): void
+    /**
+     * The Daily Units card reports TODAY's total (not the selected range), seeded
+     * server-side from the daily rollup so it renders populated on first paint.
+     */
+    public function test_dashboard_seeds_daily_units_card_from_todays_rollup(): void
     {
         $meter = $this->createActiveMeter('meter-range', 'meters/range');
 
-        // Two readings within the last hour → 0.500 kWh in the default 1h seed window.
-        DB::table('meter_readings')->insert([
-            ['device_id' => $meter->id, 'ts' => 1000, 'energy_pzem_wh' => 1000, 'raw_payload' => '{}',
-             'received_at' => now()->subMinutes(40), 'created_at' => now()->subMinutes(40), 'updated_at' => now()->subMinutes(40)],
-            ['device_id' => $meter->id, 'ts' => 1100, 'energy_pzem_wh' => 1500, 'raw_payload' => '{}',
-             'received_at' => now()->subMinutes(10), 'created_at' => now()->subMinutes(10), 'updated_at' => now()->subMinutes(10)],
+        // Today's rollup row is the card's only source — no raw-readings scan.
+        MeterDailyConsumption::create([
+            'device_id'          => $meter->id,
+            'period_date'        => now()->toDateString(),
+            'baseline_energy_wh' => 1000,
+            'last_energy_wh'     => 1500,
+            'rollover_wh'        => 0,
+            'units_kwh'          => 0.500,
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
 
         $response->assertOk()
-            ->assertSee('Range Units')                 // new KPI card label
-            ->assertSee('id="kpi-range-units"', false) // card present
-            ->assertSee('0.500')                       // server-seeded 1h consumption
+            ->assertSee('Daily Units')                 // KPI card label
+            ->assertSee('id="kpi-daily-units"', false) // card present
+            ->assertSee('0.500')                       // server-seeded today total
+            ->assertDontSee('Range Units')             // the range-following card is gone
             ->assertSee('Daily Breakdown')             // monthly report panel
             ->assertSee('id="dailyMonthSelect"', false)
             ->assertSee('Monthly total:');

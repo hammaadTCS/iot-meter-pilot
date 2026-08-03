@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Device;
 use App\Models\MeterDailyConsumption;
-use App\Services\Meters\RangeConsumption;
 use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
@@ -116,10 +115,14 @@ class DeviceDashboardController extends Controller
                 'units_kwh'    => (float) $row->units_kwh,
             ]);
 
-        // Seed the Range Units KPI for the dashboard's default range (1h) so the
-        // card renders populated on first paint. Reuses the same RangeConsumption
-        // service the client polls, so the seed reconciles with the first fetch.
-        $rangeUnits = RangeConsumption::unitsForWindow($device->id, now()->subHour(), null);
+        // Seed the Daily Units KPI (today's consumption) so the card renders
+        // populated on first paint. Read from the daily rollup — maintained
+        // incrementally at ingest, so a single indexed lookup is both current and
+        // far cheaper than walking raw readings. Identical to the simplified
+        // dashboard's seed (showMeterSimple), so both views can never disagree.
+        $todayUnits = MeterDailyConsumption::where('device_id', $device->id)
+            ->whereDate('period_date', now()->toDateString())
+            ->value('units_kwh');
 
         // Daily Breakdown report — seed the current month for first paint; the
         // client re-fetches when another month is picked. Reads the pre-aggregated
@@ -160,7 +163,7 @@ class DeviceDashboardController extends Controller
             'canViewCharts'      => $user->can('meter.charts'),
             'canViewHistory'     => $user->can('meter.history'),
             'device'             => $device,
-            'rangeUnits'         => $rangeUnits,
+            'todayUnits'         => $todayUnits !== null ? (float) $todayUnits : null,
             'dailyBreakdown'     => $dailyBreakdown,
             'reportMonths'       => $reportMonths,
             'currentMonth'       => $currentMonth->format('Y-m'),

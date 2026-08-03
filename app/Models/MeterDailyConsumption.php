@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * One row per device per calendar day, holding the energy consumed ("units")
- * that day. Maintained incrementally during MQTT ingestion so the Range Units
+ * that day. Maintained incrementally during MQTT ingestion so the Daily Units
  * KPI, exports, and reports can answer arbitrary windows without scanning raw
  * history (any range = sum of day buckets + bounded partial-day edges).
  *

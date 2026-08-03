@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\DB;
 /**
  * Single source of truth for "energy consumed (units) over a time window".
  *
- * Every consumer of a consumption figure — the Range Units KPI, CSV/JSON
- * exports, and the range/monthly reports — calls this service, so they can never
- * disagree with each other.
+ * Every consumer of a consumption figure — the simplified dashboard's Usage
+ * History total, CSV/JSON exports, and the range/monthly reports — calls this
+ * service, so they can never disagree with each other.
  *
  * Semantics: consumption over [start, end] is the rise of the cumulative PZEM
  * counter across the window, self-contained (baseline = first reading inside the

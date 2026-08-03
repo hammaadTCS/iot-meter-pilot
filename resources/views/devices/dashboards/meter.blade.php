@@ -859,7 +859,7 @@
     ══════════════════════════════════════════════════════════ --}}
     {{-- Instantaneous electrical readings (voltage/current/power/frequency/pf)
          render as 0 while the meter is DOWN — a frozen last-known 230 V on a
-         dead meter is misleading. Cumulative cards (Monthly/Range Units, PZEM
+         dead meter is misleading. Cumulative cards (Monthly/Daily Units, PZEM
          counter) keep their values: totals remain true regardless of liveness.
          The same rule is applied live in updateKPIs()/refreshDeviceHealth(). --}}
     @php($liveKpisDown = ($deviceHealth['status'] ?? '') === 'down')
@@ -896,14 +896,16 @@
             <div class="kpi-unit">kWh</div>
         </div>
 
-        {{-- Units (kWh) consumed within the currently selected dashboard range.
-             Computed by the shared RangeConsumption service so it reconciles with
-             the Monthly Units card. Seeded server-side for the default 1h range;
-             refreshed by JS on every range change and on the background poll. --}}
+        {{-- Units (kWh) consumed today (this calendar day). Deliberately NOT
+             range-following: it pairs with Monthly Units above as a fixed period
+             total, so clicking 1H/24H/7 Days never changes its meaning. Read from
+             the meter_daily_consumption rollup (maintained incrementally at ingest)
+             — one indexed lookup, never a raw-readings scan. Refreshed on the
+             background poll from the same daily API the report panel uses. --}}
         <div class="kpi kpi--range">
             <span class="kpi-icon">∫</span>
-            <div class="kpi-label">Range Units <span id="kpi-range-units-label" style="opacity:.55">1H</span></div>
-            <div class="kpi-value" id="kpi-range-units">{{ data_get($rangeUnits, 'units_kwh') !== null ? number_format((float) data_get($rangeUnits, 'units_kwh'), 3) : '—' }}</div>
+            <div class="kpi-label">Daily Units</div>
+            <div class="kpi-value" id="kpi-daily-units">{{ $todayUnits !== null ? number_format($todayUnits, 3) : '—' }}</div>
             <div class="kpi-unit">kWh</div>
         </div>
 
@@ -1176,7 +1178,6 @@
 const DEVICE_ID        = {{ $device->id }};
 const API_TABLE        = `/api/devices/${DEVICE_ID}/readings`;
 const API_CHART        = `/api/devices/${DEVICE_ID}/readings/chart`;
-const API_CONSUMPTION  = `/api/devices/${DEVICE_ID}/readings/consumption`;
 const API_DAILY        = `/api/devices/${DEVICE_ID}/consumption/daily`;
 const API_STATUS       = `/api/devices/${DEVICE_ID}/status`;
 const REFRESH_INTERVAL = 30;  // seconds between background polls
@@ -2064,7 +2065,7 @@ function updateKPIs() {
 
     // While the meter is DOWN the instantaneous readings are shown as 0 — the
     // last-known voltage/power of a silent meter is misleading. Cumulative
-    // cards (Monthly/Range Units, PZEM counter) keep their true totals.
+    // cards (Monthly/Daily Units, PZEM counter) keep their true totals.
     const zeroLive = computeDeviceHealthState().status === 'down';
 
     document.getElementById('kpi-voltage').textContent       = zeroLive ? '0' : (snapshot?.voltage   ?? '—');
@@ -2449,37 +2450,38 @@ function rangeParams() {
     return `range=${activeRange}`;
 }
 
-/** Current range label for the Range Units card (e.g. "1H", "24H", "CUSTOM"). */
-function rangeLabelText() {
-    if (customRangeFrom && customRangeTo) return 'CUSTOM';
-    return String(activeRange || '').toUpperCase();
-}
-
-
 /**
- * Fetch the consumption (units) for the currently selected range. Reuses
- * rangeParams() so preset/custom windows are handled identically to the chart.
- * Returns null on failure so the caller can degrade gracefully.
+ * Today's consumed units, for the Daily Units KPI. Reads the current month from
+ * the daily-report API — the same pre-aggregated rollup the Daily Breakdown panel
+ * renders, so the card and the report can never disagree — and picks out today's
+ * row. Independent of the selected range by design.
+ *
+ * Returns the units (0 when today has no row yet) or null on failure, so the
+ * caller can keep the last good value rather than blanking the card.
  */
-async function fetchRangeUnits() {
+async function fetchTodayUnits() {
     try {
-        const response = await fetch(`${API_CONSUMPTION}?${rangeParams()}`, {
+        const now = new Date();
+        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const r = await fetch(`${API_DAILY}?month=${month}`, {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         });
-        if (!response.ok) return null;
-        return await response.json();
+        if (!r.ok) return null;
+        const payload = await r.json();
+
+        const dd = String(now.getDate()).padStart(2, '0');
+        const today = `${month}-${dd}`;
+        const row = (payload.days ?? []).find(d => d.date === today);
+        return row ? row.units_kwh : 0;
     } catch (err) {
         return null;
     }
 }
 
-/** Render the Range Units card. payload null → em dash (used on initial/range load). */
-function renderRangeUnits(payload) {
-    const labelEl = document.getElementById('kpi-range-units-label');
-    if (labelEl) labelEl.textContent = rangeLabelText();
-
-    const valueEl = document.getElementById('kpi-range-units');
-    if (valueEl) valueEl.textContent = payload ? formatKwh(payload.units_kwh) : '—';
+/** Render the Daily Units card. Called only with a fetched value, never null. */
+function renderDailyUnits(unitsKwh) {
+    const el = document.getElementById('kpi-daily-units');
+    if (el) el.textContent = formatKwh(unitsKwh);
 }
 
 /**
@@ -2591,11 +2593,11 @@ async function fullLoad(range) {
         // Parallel requests — each data path only when its section is
         // granted; the server enforces the same slugs with 403s, so the
         // flags are a bandwidth optimisation, not the security boundary.
-        const [chartRows, { rows: tableRows, meta }, statusPayload, rangeUnits] = await Promise.all([
+        const [chartRows, { rows: tableRows, meta }, statusPayload, todayUnits] = await Promise.all([
             CAN_CHARTS    ? fetchChartData()   : Promise.resolve([]),
             CAN_HISTORY   ? fetchTableData(1)  : Promise.resolve({ rows: [], meta: { current_page: 1, total: 0, last_page: 1 } }),
             CAN_LIVE_DATA ? fetchDeviceStatus() : Promise.resolve(null),
-            CAN_LIVE_DATA ? fetchRangeUnits()   : Promise.resolve(null),
+            CAN_LIVE_DATA ? fetchTodayUnits()   : Promise.resolve(null),
         ]);
 
         // Chart — oldest-first, ready for Chart.js.
@@ -2624,9 +2626,9 @@ async function fullLoad(range) {
         clearConnectionIssue();
         if (statusPayload) applyRuntimeStatus(statusPayload);
 
-        // Range Units KPI — reflects the just-loaded window (always render so the
-        // label updates and a failed fetch shows — rather than a stale value).
-        if (CAN_LIVE_DATA) renderRangeUnits(rangeUnits);
+        // Daily Units KPI — today's total, independent of the loaded window. On a
+        // failed fetch keep the server-seeded value rather than blanking the card.
+        if (todayUnits !== null) renderDailyUnits(todayUnits);
 
         if (!currentSnapshot) {
             updateCurrentSnapshot(makeSnapshotFromReading(tableRows[0] ?? null));
@@ -2654,11 +2656,11 @@ async function fullLoad(range) {
 async function backgroundRefresh() {
     try {
         // Parallel: only the granted data paths (see fullLoad note).
-        const [newRows, freshChart, statusPayload, rangeUnits] = await Promise.all([
+        const [newRows, freshChart, statusPayload, todayUnits] = await Promise.all([
             CAN_HISTORY   ? fetchNewRows()      : Promise.resolve([]),
             CAN_CHARTS    ? fetchChartData()    : Promise.resolve([]),
             CAN_LIVE_DATA ? fetchDeviceStatus() : Promise.resolve(null),
-            CAN_LIVE_DATA ? fetchRangeUnits()   : Promise.resolve(null),
+            CAN_LIVE_DATA ? fetchTodayUnits()   : Promise.resolve(null),
         ]);
 
         clearConnectionIssue();
@@ -2668,8 +2670,8 @@ async function backgroundRefresh() {
         chartReadings = freshChart;
         updateCharts(chartReadings, activeRange);
 
-        // Refresh the Range Units KPI (skip on a failed fetch to avoid flicker).
-        if (rangeUnits) renderRangeUnits(rangeUnits);
+        // Refresh the Daily Units KPI (skip on a failed fetch to avoid flicker).
+        if (todayUnits !== null) renderDailyUnits(todayUnits);
 
         if (!newRows.length) return;
 
@@ -2830,7 +2832,9 @@ document.getElementById('applyCustomRangeBtn')?.addEventListener('click', async 
         alert('Please select both a start and end date/time.');
         return;
     }
-    if (new Date(fromVal) >= new Date(toVal)) {
+    // Only a genuinely inverted window is an error; an equal instant is a
+    // harmless zero-width window the API answers with zero units.
+    if (new Date(fromVal) > new Date(toVal)) {
         alert('Start date/time must be before end date/time.');
         return;
     }

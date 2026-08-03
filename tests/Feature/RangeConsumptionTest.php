@@ -18,7 +18,7 @@ use Tests\TestCase;
  *
  * The headline test is reconciliation: for a device's first month, the service
  * must return exactly the figure the incremental monthly aggregate stored, so
- * the Range Units KPI, exports, and reports can never disagree with the
+ * the range figures, exports, and reports can never disagree with the
  * Monthly Units card.
  */
 #[RequiresPhpExtension('pdo_sqlite')]

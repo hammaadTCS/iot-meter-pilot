@@ -461,7 +461,7 @@
                     <input type="date" id="customToDate" class="custom-range-input">
                 </div>
                 <div class="custom-range-field">
-                    <label class="custom-range-field-label" for="customToTime">Time (optional, 12:00 AM)</label>
+                    <label class="custom-range-field-label" for="customToTime">Time (optional, 11:59 PM)</label>
                     <input type="time" id="customToTime" class="custom-range-input">
                 </div>
                 <button class="custom-range-apply" id="applyCustomRangeBtn">Apply</button>
@@ -1037,13 +1037,19 @@ document.querySelectorAll('.range-btn[data-range]').forEach(btn => {
 });
 
 // ── Custom date/time range ────────────────────────────────────────────────
-// Forgiving rules: a missing time defaults to 12:00 AM (midnight) on both
-// fields; a missing "To" date means "up to now" and the window stays live.
+// Forgiving rules — the blank-time defaults are deliberately ASYMMETRIC so a
+// date range means what a person expects it to mean:
+//   • blank "From" time → 00:00:00 (start of that day)
+//   • blank "To"   time → 23:59:59 (end of that day)
+// So picking the same date in both fields selects that WHOLE day, which the
+// aggregate API then serves as hourly buckets (a ~24h window is under its 48h
+// hour/day threshold) — the "show me one day, hour by hour" case.
+// A missing "To" date still means "up to now" and the window stays live.
 document.getElementById('applyCustomRangeBtn')?.addEventListener('click', async () => {
     const fromDate = document.getElementById('customFromDate').value;
-    const fromTime = document.getElementById('customFromTime').value || '00:00';
+    const fromTime = document.getElementById('customFromTime').value || '00:00:00';
     const toDate   = document.getElementById('customToDate').value;
-    const toTime   = document.getElementById('customToTime').value || '00:00';
+    const toTime   = document.getElementById('customToTime').value || '23:59:59';
 
     if (!fromDate) {
         alert('Please pick a start date.');
@@ -1053,7 +1059,9 @@ document.getElementById('applyCustomRangeBtn')?.addEventListener('click', async 
     const from = new Date(`${fromDate}T${fromTime}`);
     const to   = toDate ? new Date(`${toDate}T${toTime}`) : null;
 
-    if (to && from >= to) {
+    // Only a genuinely inverted window is an error; an equal instant is a
+    // harmless zero-width window the API answers with zero units.
+    if (to && from > to) {
         alert('Start date/time must be before end date/time.');
         return;
     }

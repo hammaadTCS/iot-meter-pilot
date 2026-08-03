@@ -69,6 +69,12 @@ class DeviceReadingController extends Controller
      * windows — preset ranges, and a custom `from` with no `to` (open-ended:
      * everything from the start up to now).
      * Returns null when a custom from/to is present but invalid.
+     *
+     * `to` equal to `from` is VALID — a zero-width window, answered with zero
+     * units / no buckets rather than an error. Only an unparseable bound or a
+     * genuinely inverted window (`to` before `from`) is rejected. This keeps the
+     * API honest for clients that send a same-instant window, and is what lets
+     * the dashboards offer whole-single-day selections.
      */
     private function resolveWindow(Request $request): ?array
     {
@@ -86,7 +92,7 @@ class DeviceReadingController extends Controller
 
             $end = rescue(fn () => Carbon::parse($request->query('to')), report: false);
 
-            if (! $end || $end->lte($start)) {
+            if (! $end || $end->lt($start)) {
                 return null;
             }
 
