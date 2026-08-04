@@ -7,3 +7,6 @@
 
 # style: apply Pint (laravel preset) across the codebase — whitespace only
 ac5f3d8d0a4bf422f82c6c6a463d0b6e8ed133f8
+
+# docs: mechanical link rewrite (../ prefix) + line-anchor removal
+c4f8cbfcb6f0f5207bf631141d37c36988bd05d1
