@@ -167,9 +167,14 @@ return [
     | to the server if the browser has a HTTPS connection. This will keep
     | the cookie from being sent to you when it can't be done securely.
     |
+    | Defaults to TRUE in production so a missing env key can never silently
+    | ship a session cookie that travels over plaintext HTTP. Local development
+    | over http:// must set SESSION_SECURE_COOKIE=false, or the browser will
+    | discard the cookie and logins will appear to fail with no error.
+    |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    'secure' => env('SESSION_SECURE_COOKIE', env('APP_ENV') === 'production'),
 
     /*
     |--------------------------------------------------------------------------

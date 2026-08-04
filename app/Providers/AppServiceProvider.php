@@ -32,6 +32,14 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->registerPolicies();
 
+        // Generate every URL as https:// in production. Without this, a
+        // password-reset or email-verification signed URL built behind a
+        // TLS-terminating proxy can come out as http:// and either break the
+        // signature or send a session cookie (now Secure) over plaintext.
+        if ($this->app->environment('production')) {
+            \Illuminate\Support\Facades\URL::forceScheme('https');
+        }
+
         // Hybrid access control (docs/FGAC_IMPLEMENTATION_PLAN.md §3.3):
         // super_admin bypasses every gate, policy and permission check.
         // Returning null (not false) lets all other users fall through to

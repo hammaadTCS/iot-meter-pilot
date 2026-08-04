@@ -20,6 +20,10 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();
+
+        // Baseline security response headers on every route, web and api.
+        $middleware->append(\App\Http\Middleware\SecurityHeaders::class);
+
         $middleware->alias([
             // Legacy role middleware — removed in FGAC Phase 7.
             'admin' => \App\Http\Middleware\AdminMiddleware::class,
