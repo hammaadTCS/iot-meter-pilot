@@ -1,0 +1,129 @@
+name: CI
+
+# Runs on every push and pull request. From here on the security-sensitive work
+# (broker credentials, TLS, retention, permission guardrails) lands weekly, and
+# nothing in that list should ship untested.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same branch cancels the older run — the old result is
+# already stale and CI minutes are not free.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Report every failing version rather than stopping at the first.
+      fail-fast: false
+      matrix:
+        # 8.2 is the floor declared in composer.json; 8.3 is what runs locally.
+        # Testing both catches accidental use of 8.3-only syntax.
+        php: ['8.2', '8.3']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          # pdo_sqlite is required, not optional: phpunit.xml runs the suite on
+          # an in-memory SQLite database, and several tests carry
+          # #[RequiresPhpExtension('pdo_sqlite')] and would silently SKIP
+          # without it — a green run that tested nothing.
+          extensions: pdo_sqlite, sqlite3, mbstring, bcmath, intl
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.composer/cache/files
+          key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ matrix.php }}-
+
+      # --prefer-dist and the lock file keep this reproducible: CI installs the
+      # exact versions committed in composer.lock, so a formatter or framework
+      # release cannot change a CI result without a commit.
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run tests
+        run: php artisan test
+
+  quality:
+    name: Code style + dependency audits
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, mbstring, bcmath, intl
+          coverage: none
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      # Blocking. The whole codebase was formatted in ac5f3d8 and is clean, so
+      # any failure here is genuinely new drift. Note the version is pinned by
+      # composer.lock — a pint MINOR release can add fixers (1.27 -> 1.30 added
+      # fully_qualified_strict_types and touched 14 files), so if this fails
+      # right after a `composer update`, run `./vendor/bin/pint` and commit that
+      # as its own change.
+      - name: Check code style
+        run: ./vendor/bin/pint --test
+
+      # Blocking. Clean as of d141e3c. If this fails, first try
+      # `composer update` — every advisory to date was fixable inside the
+      # existing constraints without a major bump.
+      - name: Audit PHP dependencies
+        run: composer audit --no-interaction
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm packages
+        run: npm ci
+
+      # Catches asset build breakage, which no PHP test can see.
+      - name: Build assets
+        run: npm run build
+
+      # NON-BLOCKING, deliberately — revisit and make this blocking once the
+      # finding below is resolved.
+      #
+      # Known: laravel-echo -> socket.io-client -> engine.io-client -> ws pulls
+      # in `ws` advisories. This project drives Reverb over the PUSHER protocol
+      # (pusher-js), not socket.io, so that path is never imported; and `ws` is
+      # a Node WebSocket library that browsers never receive, since
+      # engine.io-client uses the native WebSocket in a bundle. So it does not
+      # reach production.
+      #
+      # Note `npm audit --omit=dev` reports zero here, but that is misleading
+      # rather than reassuring: package.json declares NO `dependencies` block at
+      # all, so genuinely shipped libraries (alpinejs, axios, laravel-echo,
+      # pusher-js) sit in devDependencies and --omit=dev would hide real issues
+      # in them. The full audit is the honest one to run.
+      - name: Audit npm dependencies (reported, not enforced)
+        run: npm audit --audit-level=high
+        continue-on-error: true

@@ -19,6 +19,30 @@ class AuthenticationTest extends TestCase
         $this->seed(TestUsersSeeder::class);
     }
 
+    /**
+     * A device definitely owned by the given user.
+     *
+     * The three cross-tenant tests below used to read `$user->devices()->first()`
+     * and call markTestSkipped() when the seeder happened not to have created
+     * one — so the isolation assertions this suite exists for were silently
+     * never executed. A test that skips itself when its fixture is missing is a
+     * test that does not run; it must build the fixture instead.
+     */
+    private function deviceOwnedBy(User $owner): Device
+    {
+        return $owner->devices()->first()
+            ?? Device::factory()->create(['user_id' => $owner->id, 'type' => 'meter']);
+    }
+
+    private function userByEmail(string $email): User
+    {
+        $user = User::where('email', $email)->first();
+
+        $this->assertNotNull($user, "TestUsersSeeder did not create {$email}.");
+
+        return $user;
+    }
+
     // ===== LOGIN & AUTHENTICATION TESTS =====
 
     public function test_user_can_login_with_valid_credentials(): void
@@ -107,18 +131,8 @@ class AuthenticationTest extends TestCase
 
     public function test_user_cannot_view_other_users_device(): void
     {
-        $user1 = User::where('email', 'user1@test.local')->first();
-        $user2 = User::where('email', 'user2@test.local')->first();
-
-        // Get a device belonging to user2
-        $user2Device = $user2->devices()->first();
-
-        // Skip if user2 has no devices (edge case in test)
-        if (! $user2Device) {
-            $this->markTestSkipped('User2 has no devices assigned');
-
-            return;
-        }
+        $user1 = $this->userByEmail('user1@test.local');
+        $user2Device = $this->deviceOwnedBy($this->userByEmail('user2@test.local'));
 
         // User1 tries to access user2's device
         $response = $this->actingAs($user1)
@@ -130,17 +144,8 @@ class AuthenticationTest extends TestCase
 
     public function test_user_cannot_delete_other_users_device(): void
     {
-        $user1 = User::where('email', 'user1@test.local')->first();
-        $user2 = User::where('email', 'user2@test.local')->first();
-
-        $user2Device = $user2->devices()->first();
-
-        // Skip if user2 has no devices (edge case in test)
-        if (! $user2Device) {
-            $this->markTestSkipped('User2 has no devices assigned');
-
-            return;
-        }
+        $user1 = $this->userByEmail('user1@test.local');
+        $user2Device = $this->deviceOwnedBy($this->userByEmail('user2@test.local'));
 
         $response = $this->actingAs($user1)
             ->deleteJson("/api/devices/{$user2Device->id}");
@@ -195,15 +200,8 @@ class AuthenticationTest extends TestCase
 
     public function test_admin_can_access_any_device(): void
     {
-        $admin = User::where('email', 'admin@test.local')->first();
-        $user2Device = User::where('email', 'user2@test.local')->first()->devices()->first();
-
-        // Skip if user2 has no devices (edge case in test)
-        if (! $user2Device) {
-            $this->markTestSkipped('User2 has no devices assigned');
-
-            return;
-        }
+        $admin = $this->userByEmail('admin@test.local');
+        $user2Device = $this->deviceOwnedBy($this->userByEmail('user2@test.local'));
 
         $response = $this->actingAs($admin)
             ->getJson("/api/devices/{$user2Device->id}");
