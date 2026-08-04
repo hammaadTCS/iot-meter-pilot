@@ -11,6 +11,7 @@ use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -403,7 +404,7 @@ class DeviceReadingController extends Controller
      * enclosing hour boundaries so a 14:30 start still includes the 14:00
      * bucket the consumer would expect to see.
      *
-     * @return \Illuminate\Support\Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
+     * @return Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
      */
     private function hourBuckets(int $deviceId, Carbon $start, Carbon $end)
     {
@@ -427,7 +428,7 @@ class DeviceReadingController extends Controller
      * rollup (the authoritative, never-pruned record); averages are derived
      * from the hour rows' accumulators grouped per calendar day.
      *
-     * @return \Illuminate\Support\Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
+     * @return Collection<int, array{period:string,units_kwh:float,avg_voltage:?float,avg_power:?float}>
      */
     private function dayBuckets(int $deviceId, Carbon $start, Carbon $end)
     {

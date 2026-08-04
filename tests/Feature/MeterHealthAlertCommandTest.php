@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Device;
+use App\Models\MeterAlertSetting;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
@@ -94,7 +95,7 @@ class MeterHealthAlertCommandTest extends TestCase
         $device = $this->createMeter([
             'last_seen_at' => now()->subMinutes(12), // down territory
         ]);
-        \App\Models\MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
+        MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
 
         $this->artisan('meters:scan-health')->assertExitCode(0);
 
@@ -110,7 +111,7 @@ class MeterHealthAlertCommandTest extends TestCase
         $this->artisan('meters:scan-health'); // opens telemetry_down
         $this->assertDatabaseHas('alert_events', ['device_id' => $device->id, 'status' => 'open']);
 
-        \App\Models\MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
+        MeterAlertSetting::create(['device_id' => $device->id, 'offline_enabled' => false]);
         $this->artisan('meters:scan-health');
 
         $this->assertDatabaseMissing('alert_events', ['device_id' => $device->id, 'status' => 'open']);

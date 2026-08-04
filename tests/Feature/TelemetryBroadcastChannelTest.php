@@ -9,6 +9,7 @@ use App\Models\MeterReading;
 use App\Models\User;
 use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -48,7 +49,7 @@ class TelemetryBroadcastChannelTest extends TestCase
     }
 
     /** Pusher-protocol private-channel auth requires a socket id. */
-    private function authorize(string $channel): \Illuminate\Testing\TestResponse
+    private function authorize(string $channel): TestResponse
     {
         return $this->post('/broadcasting/auth', [
             'channel_name' => $channel,

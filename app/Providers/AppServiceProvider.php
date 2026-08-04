@@ -4,6 +4,8 @@ namespace App\Providers;
 
 use App\Models\Device;
 use App\Policies\DevicePolicy;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -37,7 +39,7 @@ class AppServiceProvider extends ServiceProvider
         // TLS-terminating proxy can come out as http:// and either break the
         // signature or send a session cookie (now Secure) over plaintext.
         if ($this->app->environment('production')) {
-            \Illuminate\Support\Facades\URL::forceScheme('https');
+            URL::forceScheme('https');
         }
 
         // Hybrid access control (docs/FGAC_IMPLEMENTATION_PLAN.md §3.3):
@@ -46,7 +48,7 @@ class AppServiceProvider extends ServiceProvider
         // the normal permission evaluation. This must stay the ONLY
         // hasRole() call in application code — everything else checks
         // permissions via can().
-        \Illuminate\Support\Facades\Gate::before(
+        Gate::before(
             fn ($user, $ability) => $user->hasRole('super_admin') ? true : null
         );
 
@@ -61,7 +63,7 @@ class AppServiceProvider extends ServiceProvider
     protected function registerPolicies(): void
     {
         foreach ($this->policies as $model => $policy) {
-            \Illuminate\Support\Facades\Gate::policy($model, $policy);
+            Gate::policy($model, $policy);
         }
     }
 }

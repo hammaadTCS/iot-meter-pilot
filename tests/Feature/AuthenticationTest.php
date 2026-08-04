@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Device;
 use App\Models\User;
+use Database\Seeders\TestUsersSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,7 +16,7 @@ class AuthenticationTest extends TestCase
     {
         parent::setUp();
         // Run seeder to set up test users
-        $this->seed(\Database\Seeders\TestUsersSeeder::class);
+        $this->seed(TestUsersSeeder::class);
     }
 
     // ===== LOGIN & AUTHENTICATION TESTS =====
