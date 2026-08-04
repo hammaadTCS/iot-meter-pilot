@@ -1,0 +1,9 @@
+# Revisions to skip when running `git blame`.
+#
+# Enable in your clone with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# (GitHub, GitLab and Bitbucket read this file automatically.)
+
+# style: apply Pint (laravel preset) across the codebase — whitespace only
+ac5f3d8d0a4bf422f82c6c6a463d0b6e8ed133f8
