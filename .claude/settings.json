@@ -51,7 +51,14 @@
       "Bash(cp out.xlsx /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx)",
       "Bash(rm -f /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/lo2/ORIGINAL_backup_Weekly_Tasks.xlsx)",
       "Bash(cp -p /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/ORIGINAL_backup_Weekly_Tasks.xlsx)",
-      "Bash(cp /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/out.xlsx /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx)"
+      "Bash(cp /tmp/claude-1000/-home-hammaad-iot-meter-pilot/1d3140f3-1d44-4e39-ac0a-5b462cfdddc7/scratchpad/out.xlsx /home/hammaad/iot-meter-pilot/Weekly_Tasks_-_Software___IoT_Teams.xlsx)",
+      "Bash(./vendor/bin/pint --test)",
+      "Bash(git --no-pager diff --stat)",
+      "Bash(git --no-pager diff resources/views/devices/dashboards/meter.blade.php)",
+      "Bash(git --no-pager diff .claude/settings.json)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d['files']\\)\\)\")",
+      "Bash(git archive *)",
+      "Bash(./vendor/bin/pint /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/pintdemo)"
     ]
   }
 }

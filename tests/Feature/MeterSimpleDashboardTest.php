@@ -313,6 +313,30 @@ class MeterSimpleDashboardTest extends TestCase
         $this->assertStringNotContainsString('id="kpi-freq"', $html);
     }
 
+    /**
+     * The simplified dashboard carried a verbatim copy of the full dashboard's
+     * browser-clock date derivation, so it had the same Daily Units bug: the
+     * 30s poll overwrote the correct server seed with 0 for any viewer whose
+     * local date differed from the platform timezone. Both views must now take
+     * the day from CONFIG.serverToday.
+     */
+    public function test_simplified_dashboard_hands_the_client_the_server_day(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-30 23:55:00', config('app.timezone')));
+
+        $consumer = User::factory()->consumer()->create();
+        $device = $this->createMeter($consumer);
+
+        $html = $this->actingAs($consumer)
+            ->get(route('devices.dashboard', $device))
+            ->assertOk()
+            ->getContent();
+
+        $this->assertStringContainsString('"serverToday":"2026-06-30"', $html);
+        $this->assertStringContainsString('?date=${SERVER_TODAY}', $html);
+        $this->assertStringNotContainsString('now.getFullYear()', $html);
+    }
+
     public function test_full_dashboard_holders_keep_the_operator_view(): void
     {
         // Via the prosumer bundle…

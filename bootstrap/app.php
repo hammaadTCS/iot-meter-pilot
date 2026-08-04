@@ -9,8 +9,14 @@ return Application::configure(basePath: dirname(__DIR__))
         web: __DIR__.'/../routes/web.php',
         api: __DIR__.'/../routes/api.php',
         commands: __DIR__.'/../routes/console.php',
-        channels: __DIR__.'/../routes/channels.php',
         health: '/up',
+    )
+    // Registered explicitly rather than via withRouting(channels:) so the auth
+    // endpoint can be throttled: every private-channel subscription hits it,
+    // and each call runs a DevicePolicy check against the database.
+    ->withBroadcasting(
+        __DIR__.'/../routes/channels.php',
+        ['middleware' => ['web', 'throttle:60,1']],
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->statefulApi();

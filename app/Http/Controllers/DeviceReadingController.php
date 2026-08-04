@@ -513,13 +513,39 @@ class DeviceReadingController extends Controller
      * and meter_monthly_consumption) — never a raw-readings scan. Because the
      * rollups chain consistently, the daily rows sum to the monthly total.
      *
+     *   ?date=YYYY-MM-DD  (single day — the Daily Units KPI refresh)
      *   ?month=YYYY-MM    (defaults to the current month)
      *   ?format=csv|json  (omit for a JSON object the dashboard renders)
+     *
+     * Every response carries `server_date`: consumption days are defined in the
+     * platform timezone (the rollups are keyed on the server clock at ingest),
+     * so the browser must never derive "today" from its own clock. It also lets
+     * a page left open past midnight notice the day rolled over.
      */
     public function dailyConsumption(Request $request, Device $device): StreamedResponse|JsonResponse
     {
         $this->authorize('view', $device);
         abort_unless($request->user()->can('meter.access'), 403, 'Missing meter.access permission.');
+
+        // Single-day mode: the KPI card needs one row, not a whole month.
+        if ($request->query('date') !== null && $request->query('date') !== '') {
+            $date = $this->resolveDate($request);
+
+            if (! $date) {
+                return response()->json(['error' => 'Invalid date (expected YYYY-MM-DD).'], 422);
+            }
+
+            $units = MeterDailyConsumption::query()
+                ->where('device_id', $device->id)
+                ->whereDate('period_date', $date->toDateString())
+                ->value('units_kwh');
+
+            return response()->json([
+                'date'        => $date->toDateString(),
+                'units_kwh'   => $units !== null ? (float) $units : null,
+                'server_date' => now()->toDateString(),
+            ]);
+        }
 
         $month = $this->resolveMonth($request);
         if (! $month) {
@@ -581,7 +607,31 @@ class DeviceReadingController extends Controller
             'month'           => $monthLabel,
             'total_units_kwh' => $total,
             'days'            => $days,
+            'server_date'     => now()->toDateString(),
         ]);
+    }
+
+    /**
+     * Resolve a single report day from the request (YYYY-MM-DD). Returns null
+     * for a malformed or impossible date — same contract as resolveMonth().
+     */
+    private function resolveDate(Request $request): ?Carbon
+    {
+        $date = $request->query('date');
+
+        if (! is_string($date) || ! preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return null;
+        }
+
+        $dt = rescue(fn () => Carbon::createFromFormat('Y-m-d', $date), report: false);
+
+        // Round-trip guards impossible dates that the format alone accepts
+        // (Carbon rolls 2026-02-30 forward into March).
+        if (! $dt || $dt->format('Y-m-d') !== $date) {
+            return null;
+        }
+
+        return $dt->startOfDay();
     }
 
     /**

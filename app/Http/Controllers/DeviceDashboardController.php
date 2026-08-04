@@ -13,6 +13,28 @@ class DeviceDashboardController extends Controller
 {
     use AuthorizesRequests;
 
+    /**
+     * The single object of server-derived values handed to the dashboard's
+     * JavaScript (exposed as `CONFIG`).
+     *
+     * `serverToday` / `serverMonth` exist because consumption days are defined
+     * in the PLATFORM timezone: the rollups are keyed on the server clock at
+     * ingest (MeterPayloadProcessor::updateDailyConsumption). A browser
+     * deriving "today" from its own clock therefore asks for a day the data is
+     * not filed under — for any viewer west of the platform timezone that
+     * matched no row and blanked the card to 0. Per-account timezones are a
+     * possible future setting; today the platform timezone is the rule.
+     */
+    private function jsConfig(Device $device): array
+    {
+        return [
+            'deviceId'    => $device->id,
+            'serverToday' => now()->toDateString(),
+            'serverMonth' => now()->format('Y-m'),
+            'timezone'    => config('app.timezone'),
+        ];
+    }
+
     public function show(Device $device): View
     {
         $this->authorize('view', $device);
@@ -66,6 +88,7 @@ class DeviceDashboardController extends Controller
         $user = Auth::user();
 
         return view('devices.dashboards.meter-simple', [
+            'config'             => $this->jsConfig($device),
             // Section visibility mirrors the full dashboard's slugs: live_data
             // gates the KPI tiles, history gates the drill-down (whose API,
             // aggregate(), enforces the same slug server-side).
@@ -156,6 +179,7 @@ class DeviceDashboardController extends Controller
         $user = Auth::user();
 
         return view('devices.dashboards.meter', [
+            'config'             => $this->jsConfig($device),
             // Section visibility (plan §7b–e): the view renders only the
             // permitted sections; the matching API endpoints enforce the
             // same slugs server-side. The range bar rides with charts/history.

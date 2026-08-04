@@ -1175,7 +1175,28 @@
  * 1. CONFIGURATION
  * ═══════════════════════════════════════════════════════════════════════ */
 
-const DEVICE_ID        = {{ $device->id }};
+/**
+ * The single object of server-derived values (DeviceDashboardController::jsConfig).
+ * New client code should read CONFIG.*; the named constants below are thin
+ * aliases so the existing script bodies need no churn.
+ */
+const CONFIG = @json($config);
+
+const DEVICE_ID        = CONFIG.deviceId;
+
+/**
+ * "Today" and "this month" as the SERVER sees them, in the platform timezone
+ * ({{ config('app.timezone') }}). Consumption rollups are keyed on the server
+ * clock at ingest, so the browser's own clock must never be used to decide
+ * which day to ask for — doing so blanked the Daily Units card to 0 for any
+ * viewer whose local date differed from the server's.
+ *
+ * SERVER_TODAY is `let`, not `const`: every daily-report response carries
+ * `server_date`, which re-syncs a page left open past midnight.
+ */
+let   SERVER_TODAY     = CONFIG.serverToday;   // 'YYYY-MM-DD'
+const SERVER_MONTH     = CONFIG.serverMonth;   // 'YYYY-MM'
+
 const API_TABLE        = `/api/devices/${DEVICE_ID}/readings`;
 const API_CHART        = `/api/devices/${DEVICE_ID}/readings/chart`;
 const API_DAILY        = `/api/devices/${DEVICE_ID}/consumption/daily`;
@@ -1411,12 +1432,11 @@ function formatMonthLabel(periodStart) {
 
 /* ISO 'YYYY-MM-01' for the current calendar month — identifies which bar to
    refresh live. MONTHLY_DATA is newest-first, so the current month, when
-   present, is always the FIRST entry (index 0). */
-const CURRENT_PERIOD_START = (() => {
-    const now = new Date();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    return `${now.getFullYear()}-${mm}-01`;
-})();
+   present, is always the FIRST entry (index 0). Taken from the server month
+   for the same reason as SERVER_TODAY: period_start rows are filed under the
+   platform timezone, so a browser-derived month misses the bar near a
+   month boundary. */
+const CURRENT_PERIOD_START = `${SERVER_MONTH}-01`;
 
 /* Only build the chart when the panel rendered a canvas (skipped on the
    empty state). MONTHLY_DATA is already newest-first; Chart.js draws index 0
@@ -2461,18 +2481,21 @@ function rangeParams() {
  */
 async function fetchTodayUnits() {
     try {
-        const now = new Date();
-        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const r = await fetch(`${API_DAILY}?month=${month}`, {
+        // ?date= returns exactly one row instead of the whole month, and
+        // SERVER_TODAY keeps the day in the platform timezone rather than the
+        // browser's — the two together are what stopped this card zeroing out
+        // for viewers in other timezones.
+        const r = await fetch(`${API_DAILY}?date=${SERVER_TODAY}`, {
             headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
         });
         if (!r.ok) return null;
         const payload = await r.json();
 
-        const dd = String(now.getDate()).padStart(2, '0');
-        const today = `${month}-${dd}`;
-        const row = (payload.days ?? []).find(d => d.date === today);
-        return row ? row.units_kwh : 0;
+        // Re-sync for a page left open past midnight. The value below is still
+        // the day we asked for; the next poll picks up the new one.
+        if (payload.server_date) SERVER_TODAY = payload.server_date;
+
+        return payload.units_kwh ?? 0;
     } catch (err) {
         return null;
     }

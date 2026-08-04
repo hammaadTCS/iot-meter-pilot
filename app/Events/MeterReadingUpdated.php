@@ -4,7 +4,7 @@ namespace App\Events;
 
 use App\Models\Device;
 use App\Models\MeterReading;
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -27,13 +27,18 @@ class MeterReadingUpdated implements ShouldBroadcastNow
     ) {}
 
     /**
-     * Public channel for this simple pilot.
-     * Later you can secure it with private channels and auth.
+     * One private channel per device. The payload carries live consumption for
+     * a specific customer's meter, so it must never travel on a shared channel:
+     * the Reverb app key is public (every page ships it to the browser), so a
+     * public channel would let anyone stream every tenant's telemetry.
+     *
+     * Subscription is authorized in routes/channels.php against DevicePolicy,
+     * which keeps ownership and the meter.* slugs as the single source of truth.
      */
     public function broadcastOn(): array
     {
         return [
-            new Channel('meters'),
+            new PrivateChannel("device.{$this->device->id}"),
         ];
     }
 

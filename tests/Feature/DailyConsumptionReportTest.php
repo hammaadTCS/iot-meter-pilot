@@ -84,6 +84,54 @@ class DailyConsumptionReportTest extends TestCase
         $this->assertStringContainsString('TOTAL 2026-06', $content);
     }
 
+    public function test_date_filter_returns_a_single_day(): void
+    {
+        $device = $this->createMeter($this->user);
+        $this->seedMonth($device);
+        Carbon::setTestNow('2026-06-30 12:00:00');
+
+        $this->getJson("/api/devices/{$device->id}/consumption/daily?date=2026-06-20")
+            ->assertOk()
+            ->assertJsonPath('date', '2026-06-20')
+            ->assertJsonPath('units_kwh', 0.5)
+            ->assertJsonPath('server_date', '2026-06-30')
+            ->assertJsonMissingPath('days');   // one row, not the whole month
+    }
+
+    public function test_date_filter_returns_null_units_for_a_day_with_no_rollup(): void
+    {
+        $device = $this->createMeter($this->user);
+        $this->seedMonth($device);
+        Carbon::setTestNow('2026-06-30 12:00:00');
+
+        $this->getJson("/api/devices/{$device->id}/consumption/daily?date=2026-06-11")
+            ->assertOk()
+            ->assertJsonPath('units_kwh', null);
+    }
+
+    public function test_month_mode_is_unchanged_when_no_date_is_given(): void
+    {
+        $device = $this->createMeter($this->user);
+        $this->seedMonth($device);
+        Carbon::setTestNow('2026-06-30 12:00:00');
+
+        $this->getJson("/api/devices/{$device->id}/consumption/daily?month=2026-06")
+            ->assertOk()
+            ->assertJsonCount(3, 'days')
+            ->assertJsonPath('server_date', '2026-06-30');
+    }
+
+    public function test_invalid_date_returns_422(): void
+    {
+        $device = $this->createMeter($this->user);
+
+        $this->getJson("/api/devices/{$device->id}/consumption/daily?date=2026-06-31")
+            ->assertStatus(422);
+
+        $this->getJson("/api/devices/{$device->id}/consumption/daily?date=20-06-2026")
+            ->assertStatus(422);
+    }
+
     public function test_invalid_month_returns_422(): void
     {
         $device = $this->createMeter($this->user);

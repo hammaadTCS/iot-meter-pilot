@@ -3,7 +3,7 @@
 namespace App\Events;
 
 use App\Models\Device;
-use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -17,10 +17,14 @@ class MeterAvailabilityUpdated implements ShouldBroadcastNow
     ) {
     }
 
+    /**
+     * Same per-device private channel as MeterReadingUpdated — availability
+     * reveals when a home is online, so it gets the same protection.
+     */
     public function broadcastOn(): array
     {
         return [
-            new Channel('meters'),
+            new PrivateChannel("device.{$this->device->id}"),
         ];
     }
 

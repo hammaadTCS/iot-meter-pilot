@@ -62,8 +62,11 @@ Route::middleware('auth:sanctum')->group(function () {
             ->middleware('throttle:60,1'); // per-day units + monthly total report (aggregates only)
         Route::get('/devices/{device}/readings/aggregate', [DeviceReadingController::class, 'aggregate'])
             ->middleware('throttle:120,1'); // simplified-dashboard hour/day buckets (rollups only)
-        Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart']);
-        Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index']);
-        Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings']);
+        Route::get('/devices/{device}/readings/chart',  [DeviceReadingController::class, 'chart'])
+            ->middleware('throttle:120,1'); // scans a time window of raw readings
+        Route::get('/devices/{device}/readings',        [DeviceReadingController::class, 'index'])
+            ->middleware('throttle:120,1'); // paginated raw readings
+        Route::get('/devices/{id}/snapshot',            [DeviceController::class, 'readings'])
+            ->middleware('throttle:120,1');
     });
 });

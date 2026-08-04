@@ -514,7 +514,24 @@
  * path (API_TABLE / API_CHART do not exist here on purpose).
  * ═══════════════════════════════════════════════════════════════════════ */
 
-const DEVICE_ID        = {{ $device->id }};
+/**
+ * The single object of server-derived values (DeviceDashboardController::jsConfig).
+ * New client code should read CONFIG.*; the named constants below are thin
+ * aliases so the existing script bodies need no churn.
+ */
+const CONFIG = @json($config);
+
+const DEVICE_ID        = CONFIG.deviceId;
+
+/**
+ * "Today" as the SERVER sees it, in the platform timezone
+ * ({{ config('app.timezone') }}). Consumption rollups are keyed on the server
+ * clock at ingest, so the browser's clock must never decide which day to ask
+ * for. `let`, not `const`: each daily-report response carries `server_date`,
+ * which re-syncs a page left open past midnight.
+ */
+let SERVER_TODAY       = CONFIG.serverToday;   // 'YYYY-MM-DD'
+
 const API_STATUS       = `/api/devices/${DEVICE_ID}/status`;
 const API_AGGREGATE    = `/api/devices/${DEVICE_ID}/readings/aggregate`;
 const API_CONSUMPTION  = `/api/devices/${DEVICE_ID}/readings/consumption`;
@@ -731,16 +748,18 @@ async function fetchDeviceStatus() {
  */
 async function fetchTodayUnits() {
     try {
-        const now = new Date();
-        const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-        const r = await fetch(`${API_DAILY}?month=${month}`, { headers: FETCH_HEADERS });
+        // ?date= returns one row instead of the whole month, and SERVER_TODAY
+        // keeps the day in the platform timezone rather than the browser's —
+        // together they are what stopped this card zeroing out for viewers in
+        // other timezones.
+        const r = await fetch(`${API_DAILY}?date=${SERVER_TODAY}`, { headers: FETCH_HEADERS });
         if (!r.ok) return null;
         const payload = await r.json();
 
-        const dd = String(now.getDate()).padStart(2, '0');
-        const today = `${month}-${dd}`;
-        const row = (payload.days ?? []).find(d => d.date === today);
-        return row ? row.units_kwh : 0;
+        // Re-sync for a page left open past midnight; the next poll uses it.
+        if (payload.server_date) SERVER_TODAY = payload.server_date;
+
+        return payload.units_kwh ?? 0;
     } catch (e) {
         return null;
     }

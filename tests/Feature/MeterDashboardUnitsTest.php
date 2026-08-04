@@ -8,6 +8,7 @@ use App\Models\MeterDailyConsumption;
 use App\Models\MeterMonthlyConsumption;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use Tests\TestCase;
 
@@ -142,6 +143,44 @@ class MeterDashboardUnitsTest extends TestCase
             ->assertSee('Daily Breakdown')             // monthly report panel
             ->assertSee('id="dailyMonthSelect"', false)
             ->assertSee('Monthly total:');
+    }
+
+    /**
+     * The card used to be refreshed against a day derived from the BROWSER
+     * clock while the rollups are keyed to the platform timezone, so any viewer
+     * whose local date differed matched no row and the poll overwrote the
+     * correct server seed with 0.
+     *
+     * The fix is CONFIG.serverToday. Pinned near midnight because that is where
+     * server and browser dates diverge for the widest set of timezones.
+     */
+    public function test_dashboard_hands_the_client_the_server_day_not_the_browsers(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-06-30 23:55:00', config('app.timezone')));
+
+        $meter = $this->createActiveMeter('meter-tz', 'meters/tz');
+
+        MeterDailyConsumption::create([
+            'device_id'          => $meter->id,
+            'period_date'        => now()->toDateString(),   // 2026-06-30, server time
+            'baseline_energy_wh' => 1000,
+            'last_energy_wh'     => 1500,
+            'rollover_wh'        => 0,
+            'units_kwh'          => 0.500,
+        ]);
+
+        $response = $this->get('/devices/'.$meter->id.'/dashboard');
+
+        $response->assertOk()
+            ->assertSee('0.500')                             // server-rendered seed
+            ->assertSee('"serverToday":"2026-06-30"', false) // what the poll will ask for
+            ->assertSee('"serverMonth":"2026-06"', false)    // and which monthly bar to update
+            ->assertSee('?date=${SERVER_TODAY}', false);     // no browser-derived date left
+
+        // The old browser-clock derivation must be gone entirely.
+        $response->assertDontSee('now.getFullYear()', false);
+
+        Carbon::setTestNow();
     }
 
     /**
