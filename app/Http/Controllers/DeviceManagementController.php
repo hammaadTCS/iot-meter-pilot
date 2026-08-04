@@ -42,6 +42,62 @@ class DeviceManagementController extends Controller
         ]);
     }
 
+    /**
+     * Validation rules for the two MQTT topic fields.
+     *
+     * A topic string is the ONLY thing that binds an inbound MQTT message to a
+     * device row — MeterPayloadProcessor matches `mqtt_topic` and
+     * MeterAvailabilityProcessor matches `availability_topic`, both by exact
+     * string, both with ->first(). So a topic reused across two device rows is
+     * a cross-tenant leak: whichever row the database returns first receives
+     * another customer's readings or availability, and the rightful owner
+     * silently stops receiving them.
+     *
+     * Uniqueness therefore has to hold ACROSS BOTH COLUMNS, not within each one:
+     * the consumer subscribes to a device's data topic and its status topic, so
+     * one device's availability_topic colliding with another's mqtt_topic is
+     * just as exploitable as a same-column collision.
+     *
+     * This is defence in depth pending the claim flow in docs/DEVICE_CLAIMING.md,
+     * which removes these fields from user input altogether by deriving both
+     * topics server-side from an immutable device_uid.
+     *
+     * @param  int|null  $ignoreDeviceId  Row to exclude (the record being updated).
+     */
+    private function topicRules(?int $ignoreDeviceId = null): array
+    {
+        // Reject a value already used by ANY other device in EITHER column.
+        $notUsedByAnotherDevice = function (string $attribute, mixed $value, callable $fail) use ($ignoreDeviceId) {
+            $value = trim((string) $value);
+
+            if ($value === '') {
+                return;
+            }
+
+            $taken = Device::query()
+                ->where(fn ($q) => $q->where('mqtt_topic', $value)->orWhere('availability_topic', $value))
+                ->when($ignoreDeviceId, fn ($q) => $q->whereKeyNot($ignoreDeviceId))
+                ->exists();
+
+            if ($taken) {
+                $fail('This MQTT topic is already in use by another device.');
+            }
+        };
+
+        return [
+            'mqtt_topic' => ['required', 'string', 'max:255', $notUsedByAnotherDevice],
+            'availability_topic' => [
+                'nullable',
+                'string',
+                'max:255',
+                // A device's own two topics must differ, or its status messages
+                // would be parsed as readings.
+                'different:mqtt_topic',
+                $notUsedByAnotherDevice,
+            ],
+        ];
+    }
+
     public function store(Request $request)
     {
         $this->authorize('create', Device::class);
@@ -62,9 +118,8 @@ class DeviceManagementController extends Controller
             'type' => $this->selfProvisionOnly()
                 ? 'required|string|in:meter'
                 : 'required|string|in:meter,sensor,smart_plug,camera,thermostat,lock',
-            'mqtt_topic' => 'required|string|max:255',
-            'availability_topic' => 'nullable|string|max:255',
             'is_active' => 'boolean',
+            ...$this->topicRules(),
         ];
 
         if ($canAssignOwner) {
@@ -111,13 +166,21 @@ class DeviceManagementController extends Controller
                 ->with('success', 'Device renamed successfully!');
         }
 
+        // Code uniqueness is scoped to the RESULTING owner, which an
+        // assign_owner holder may be changing in this same request.
+        $targetOwnerId = $user->can('devices.assign_owner')
+            ? (int) $request->input('user_id', $device->user_id)
+            : (int) $device->user_id;
+
         $rules = [
             'name' => 'required|string|max:255',
-            'code' => 'required|string|max:255',
+            'code' => [
+                'required', 'string', 'max:255',
+                Rule::unique('devices', 'code')->where('user_id', $targetOwnerId)->ignore($device->id),
+            ],
             'type' => 'required|string|in:meter,sensor,smart_plug,camera,thermostat,lock',
-            'mqtt_topic' => 'required|string|max:255',
-            'availability_topic' => 'nullable|string|max:255',
             'is_active' => 'boolean',
+            ...$this->topicRules(ignoreDeviceId: $device->id),
         ];
 
         if ($user->can('devices.assign_owner')) {
