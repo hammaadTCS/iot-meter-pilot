@@ -6,7 +6,11 @@
 > of *this* project lives and how to change it.
 >
 > Everything in this document is written from the actual code in this repository —
-> file paths and line references are real. Last verified: **2026-07-07**.
+> file paths and line references are real. Last verified: **2026-08-04**.
+>
+> **§14 is a change log of the commercial-hardening sprint currently in progress.**
+> If something here contradicts the code, §14 is the more recent account and the
+> code is the authority.
 
 ---
 
@@ -34,6 +38,7 @@
 11. [Tests](#11-tests)
 12. [Recipes — "I want to change X, where do I go?"](#12-recipes)
 13. [Glossary](#13-glossary)
+14. [Change log — commercial hardening sprint](#14-change-log--commercial-hardening-sprint)
 
 ---
 
@@ -470,7 +475,26 @@ supervision in [§10](#10-deployment-pieces).
 [resources/views/auth/](resources/views/auth/). Passwords are bcrypt-hashed
 automatically by the `'password' => 'hashed'` cast on
 [User.php:52](app/Models/User.php#L52). Sessions are cookie-based (config in
-[config/session.php](config/session.php)).
+[config/session.php](config/session.php)); the cookie is marked `Secure`
+automatically whenever `APP_ENV=production`, and every response carries the
+headers set by [SecurityHeaders](app/Http/Middleware/SecurityHeaders.php) (§9).
+
+> ⚠️ **Email verification does not work, and the `verified` middleware is a
+> no-op.** [routes/web.php](routes/web.php) puts `['auth','verified']` on every
+> authenticated route, but `User` does **not** implement `MustVerifyEmail` (the
+> import is commented out at [User.php:5](app/Models/User.php#L5)). Laravel's
+> `EnsureEmailIsVerified` short-circuits on an `instanceof` check, so every
+> unverified user passes, and the `Registered` event never fires
+> `SendEmailVerificationNotification`. `tests/Feature/Auth/EmailVerificationTest.php`
+> stays green regardless, because the `MustVerifyEmail` **trait** is present on
+> the framework base class — it is the *contract* that is missing, which is why
+> nothing caught this.
+>
+> Anyone can therefore register with an address they do not own. Combined with
+> `MAIL_MAILER=log`, password reset does not work either. Both were deliberately
+> deferred on 2026-08-04 — the full pick-up procedure, and the deadline (before
+> FGAC Phase 7, since both rewrite `User.php`), are in
+> [PENDING_WORK.md §4a](PENDING_WORK.md).
 
 **Roles** — a plain `role` enum column on `users`
 (migration [2026_05_08_122359_add_role_to_users_table.php](database/migrations/2026_05_08_122359_add_role_to_users_table.php),
@@ -543,6 +567,31 @@ status/label/message for the UI:
 
 If you need to change what "stale" or "down" means, that's **one config file /
 env var**, not code.
+
+**MQTT topics are identity — treat them as a security boundary.** A topic string
+is the *only* thing binding an inbound message to a device row:
+`MeterPayloadProcessor` matches `mqtt_topic` and `MeterAvailabilityProcessor`
+matches `availability_topic`, both by exact string, both with `->first()`. If two
+rows share a topic, whichever the database returns first wins — one customer
+receives another's readings or availability, and the rightful owner silently
+stops receiving them.
+
+`DeviceManagementController::topicRules()` therefore enforces uniqueness **across
+both columns at once**, not per column: the consumer subscribes to a device's
+data topic *and* its status topic, so one device's `availability_topic`
+colliding with another's `mqtt_topic` is just as exploitable.
+
+> Until 2026-08-04 the web forms validated **neither** topic field for
+> uniqueness (the API validated both), and `availability_topic` had only a plain
+> index — so a self-provisioning user could point their device at another
+> customer's status topic and learn when that household was home. Fixed in §14
+> (A5), guarded by `tests/Feature/DeviceTopicUniquenessTest.php`.
+
+**This whole class of problem goes away when claiming lands.** The agreed design
+— [docs/DEVICE_CLAIMING.md](DEVICE_CLAIMING.md) — removes topics from user input
+entirely: a single-use claim code printed on the unit binds it, and the server
+derives both topics from an immutable `device_uid`. Read that document before
+changing anything about how devices are created.
 
 ### 8.3 MQTT ingestion
 
@@ -657,8 +706,24 @@ installed and a rebuild is planned, but nothing runs on it yet.)
 | Notification prefs | `/settings/notifications` | [NotificationPreferenceController](app/Http/Controllers/NotificationPreferenceController.php) | [settings/notifications.blade.php](resources/views/settings/notifications.blade.php) |
 | Users, profile, auth | see §8.1 | | |
 
+**Server values reach the JavaScript through one object.** Both meter
+dashboards open their script block with `const CONFIG = @json($config)`, built by
+`DeviceDashboardController::jsConfig()`. It carries `deviceId`, `serverToday`,
+`serverMonth` and `timezone`. The older top-level constants (`DEVICE_ID`,
+`API_*`, `CAN_*`, `INITIAL_*`) are still there as thin aliases so the large
+inline scripts need no churn, but **new client code should read `CONFIG.*`**.
+
+> **Never derive a date in the browser.** Consumption rollups are keyed on the
+> *server* clock at ingest (`MeterPayloadProcessor::updateDailyConsumption` uses
+> `$receivedAt`), and the app timezone is `Asia/Karachi`. `fetchTodayUnits()`
+> previously built "today" from `new Date()`, so any viewer whose local date
+> differed matched no row and the 30-second poll overwrote the correct
+> server-rendered value with `0`. Use `CONFIG.serverToday` / `SERVER_TODAY`, and
+> re-sync from the `server_date` field every daily-report response returns.
+> Fixed 2026-08-04 (§14, A1).
+
 **The meter dashboard deserves special mention** — it is one large
-self-contained Blade file (~2 870 lines:
+self-contained Blade file (~2 890 lines:
 [meter.blade.php](resources/views/devices/dashboards/meter.blade.php)) holding
 the HTML, CSS and JS for: KPI cards (voltage / current / power / monthly
 units), a time-range selector (1h…30d/all) driving dual-axis Chart.js charts, a
@@ -683,16 +748,21 @@ The chain:
 
 1. **Server event** implements `ShouldBroadcastNow` — see
    [MeterReadingUpdated.php](app/Events/MeterReadingUpdated.php): declares its
-   channel (`meters`, public), event name (`meter.reading.updated`), and exact
-   payload (`broadcastWith()`).
+   channel (`private-device.{id}`), event name (`meter.reading.updated`), and
+   exact payload (`broadcastWith()`).
 2. **Reverb** (`php artisan reverb:start`, config
    [config/reverb.php](config/reverb.php)) is the WebSocket server that fans
    the event out. `.env` sets `BROADCAST_CONNECTION=reverb`.
 3. **Browser** — [resources/js/echo.js](resources/js/echo.js) creates
    `window.Echo` connected to Reverb.
 4. **Channel authorization** for private channels lives in
-   [routes/channels.php](routes/channels.php): the only rule says a user may
-   listen to `App.Models.User.{id}` only if it's their own id.
+   [routes/channels.php](routes/channels.php). Two rules: a user may listen to
+   `App.Models.User.{id}` only if it is their own id, and to `device.{device}`
+   only if `DevicePolicy::view` passes **and** they hold `meter.access` +
+   `meter.live_data` — the same predicate the dashboard itself uses, so there is
+   no second copy of the authorization logic. Every subscription hits
+   `/broadcasting/auth`, which runs a database-backed policy check, so that route
+   is throttled in [bootstrap/app.php](bootstrap/app.php).
 
 Two live surfaces today:
 
@@ -702,11 +772,20 @@ Two live surfaces today:
   ([header.blade.php:192-200](resources/views/components/header.blade.php#L192))
   listens with `window.Echo.private('App.Models.User.{{ auth()->id() }}').notification(...)`
   and prepends the item, unread badge and all, without a page reload.
-- **Meter events** (`MeterReadingUpdated`, `MeterAvailabilityUpdated` on the
-  public `meters` channel) are broadcast by the consumer; the meter dashboard
-  currently relies on HTTP polling as its primary refresh mechanism, so these
-  events are the hook for a future push-driven UI (and why catch-up readings
-  deliberately skip broadcasting).
+- **Meter events** (`MeterReadingUpdated`, `MeterAvailabilityUpdated`, each on
+  that device's own `private-device.{id}` channel) are broadcast by the
+  consumer; the meter dashboard currently relies on HTTP polling as its primary
+  refresh mechanism, so these events are the hook for a future push-driven UI
+  (and why catch-up readings deliberately skip broadcasting).
+
+> ⚠️ **Both meter events used to broadcast on a single PUBLIC channel named
+> `meters`** carrying `device_code`, live power and monthly units for *every*
+> device on the platform. The Reverb app key is compiled into browser JS and is
+> public by design, so anyone could stream every tenant's consumption —
+> bypassing `DevicePolicy` and the `meter.*` slugs entirely. Fixed 2026-08-04
+> (§14, A15). **When you add a new broadcast event, use `PrivateChannel` and add
+> an authorization rule; `Channel` is almost never right here.**
+> `tests/Feature/TelemetryBroadcastChannelTest.php` guards this.
 
 ### 8.7 The alert pipeline
 
@@ -821,11 +900,22 @@ mobile app unchanged.
 | `GET /api/health` | closure | `{"status":"ok"}` — public liveness probe (Laravel also serves `/up`) |
 | `GET/POST/DELETE /api/devices…` | [Api/DeviceController](app/Http/Controllers/Api/DeviceController.php) | device CRUD (ownership-scoped, policy-checked) |
 | `GET /api/devices/{id}/status` | same | health + availability + issue snapshots — **the dashboard's 30 s poll** |
-| `GET /api/devices/{id}/snapshot` | same | latest-state KPI values |
-| `GET /api/devices/{id}/readings/chart?range=24h` | [DeviceReadingController](app/Http/Controllers/DeviceReadingController.php) | chart series, **evenly downsampled to ≤ 500 points** so Chart.js stays fast on any range |
-| `GET /api/devices/{id}/readings?range=…&page=…` | same | paginated table rows (100/page) |
+| `GET /api/devices/{id}/snapshot` | same (throttled 120/min) | latest-state KPI values |
+| `GET /api/devices/{id}/readings/chart?range=24h` | [DeviceReadingController](app/Http/Controllers/DeviceReadingController.php) (throttled 120/min) | chart series, **evenly downsampled to ≤ 500 points** so Chart.js stays fast on any range |
+| `GET /api/devices/{id}/readings?range=…&page=…` | same (throttled 120/min) | paginated table rows (100/page) |
 | `GET /api/devices/{id}/readings/consumption?range=…` | same (throttled 120/min) | units for the selected window via RangeConsumption |
-| `GET /api/devices/{id}/consumption/daily?month=YYYY-MM` | same (throttled 60/min) | per-day breakdown + month total from the rollups; append `&format=csv` (or `json`) for the file download the dashboard's Export button uses ([DeviceReadingController.php:345-404](app/Http/Controllers/DeviceReadingController.php#L345-L404)) |
+| `GET /api/devices/{id}/consumption/daily?month=YYYY-MM` | same (throttled 60/min) | per-day breakdown + month total from the rollups; append `&format=csv` (or `json`) for the file download the dashboard's Export button uses |
+| `GET /api/devices/{id}/consumption/daily?date=YYYY-MM-DD` | same | **one** day's units — what the Daily Units KPI refresh uses instead of downloading a whole month |
+
+**Every response from `consumption/daily` carries `server_date`.** Consumption
+days are defined in the *platform* timezone (the rollups are keyed on the server
+clock at ingest), so the browser must never derive "today" from its own clock —
+see §8.5 and §14/A1.
+
+> **Every endpoint in this group is throttled.** Until 2026-08-04, `chart`,
+> `readings` and `snapshot` — the three heaviest, since they scan raw readings —
+> were the only unthrottled ones. `tests/Feature/ApiReadingsRouteTest.php` walks
+> the route table and fails if a new sibling ships without a throttle.
 
 Valid ranges: `1h, 6h, 24h, today, 7d, 30d, all`
 ([DeviceReadingController.php:27](app/Http/Controllers/DeviceReadingController.php#L27)).
@@ -852,7 +942,9 @@ touch:
 | `CACHE_STORE=redis`, `REDIS_CLIENT=predis`, `REDIS_HOST/PORT` | permission cache (Docker container `iot-redis`); `SESSION_DRIVER=database` |
 | `AUTH_ALLOW_REGISTRATION` (true) | self-serve signup (new accounts get the `consumer` bundle) vs invite-only 404 |
 | `BROADCAST_CONNECTION=reverb`, `REVERB_*`, `VITE_REVERB_*` | WebSockets (the `VITE_` copies are compiled into browser JS) |
-| `MAIL_*` | email transport (`log` in dev) |
+| `MAIL_*` | email transport (**`log` everywhere today** — no email is actually sent; see §8.1) |
+| `SESSION_SECURE_COOKIE` | defaults to `true` when `APP_ENV=production`. **Local development over plain `http://` must set this to `false`**, or the browser discards the session cookie and logins fail silently with no error |
+| `REVERB_ALLOWED_ORIGINS` | comma-separated hosts allowed to open a WebSocket; defaults to the `APP_URL` host (was previously `*`) |
 
 **[config/](config/)** — mostly stock Laravel reading those env vars. The two
 custom files are [meter-health.php](config/meter-health.php) (thresholds) and
@@ -885,6 +977,26 @@ Logging goes to `storage/logs/laravel.log` (config:
 [config/logging.php](config/logging.php)); locally `php artisan pail` gives a
 live tail (started automatically by `composer dev`).
 
+**Continuous integration** — [.github/workflows/ci.yml](.github/workflows/ci.yml)
+runs on every push and pull request:
+
+| Job | Steps | Blocking? |
+|---|---|---|
+| `tests` | full suite on PHP **8.2** (composer.json's floor) and **8.3** (local) | yes |
+| `quality` | `pint --test`, `composer audit`, `npm run build` | yes |
+| `quality` | `npm audit` | **no** — see the comment in the workflow |
+
+Two things to know when a run goes red:
+
+- **`pint --test` failing right after a `composer update`** usually is not your
+  code. Pint's version is pinned by `composer.lock` so CI is deterministic, but a
+  Pint *minor* release can add fixers — 1.27 → 1.30 added
+  `fully_qualified_strict_types` and touched 14 files. Run `./vendor/bin/pint`
+  and commit that on its own.
+- **`composer audit` failing** — try `composer update` first. Every advisory to
+  date was fixable inside the constraints already in `composer.json`, with no
+  major version bump.
+
 ---
 
 ## 11. Tests
@@ -893,7 +1005,9 @@ Run all: `php artisan test` (or `composer test`). Config in
 [phpunit.xml](phpunit.xml) — tests run against **in-memory SQLite**, so they
 never touch your real data and need no setup.
 
-- [tests/Feature/](tests/Feature/) — ~29 files exercising whole flows through
+**210 tests, 0 skipped** as of 2026-08-04, run in CI on every push (§10).
+
+- [tests/Feature/](tests/Feature/) — ~42 files exercising whole flows through
   HTTP or command invocation. The names are a map of the system's guarantees:
   `MeterPayloadProcessorTest` (idempotency, out-of-order, rollups),
   `RangeConsumptionTest` (the tiered window math),
@@ -907,6 +1021,17 @@ never touch your real data and need no setup.
 
 **House rule visible throughout the git history: every behavioral change ships
 with tests.** When you fix a bug here, add a test that would have caught it.
+
+> **A second house rule, learned the hard way: never let a test skip itself when
+> its fixture is missing.** Three cross-tenant tests in `AuthenticationTest`
+> (`test_user_cannot_view_other_users_device`,
+> `test_user_cannot_delete_other_users_device`,
+> `test_admin_can_access_any_device`) read `$user2->devices()->first()` and
+> called `markTestSkipped()` when it returned null — which it always did,
+> because `TestUsersSeeder` creates no device for that user. The isolation
+> assertions those tests exist for had **never once executed**, and the suite
+> reported green the whole time. They now build the fixture they need. If a test
+> cannot run without data, create the data; do not skip.
 
 ---
 
@@ -963,7 +1088,74 @@ Quick lookup table — *"I want to… → go to…"*:
 
 ---
 
+## 14. Change log — commercial hardening sprint
+
+An audit ahead of commercial launch produced a ~4-week plan merging security
+hardening with the outstanding FGAC phases. This section records what actually
+shipped. Items are numbered as in that plan (A1, A3, …) so commit messages,
+`PENDING_WORK.md` and this table line up.
+
+### Week 1 — shipped 2026-08-04
+
+| Item | What changed | Why it mattered |
+|---|---|---|
+| **A15** | Meter telemetry moved from a public `meters` channel to `private-device.{id}`, authorized via `DevicePolicy` + `meter.access`/`meter.live_data`; `/broadcasting/auth` throttled; `REVERB_ALLOWED_ORIGINS` replaced `*` | Anyone holding the browser-visible Reverb app key could stream **every tenant's** live power and monthly units, bypassing all of FGAC. Nothing consumed the channel yet, so the fix broke nothing. §8.6 |
+| **A3** | `throttle:120,1` on `readings/chart`, `readings`, `snapshot` | The three heaviest endpoints — the only unthrottled ones — scan raw readings. §8.9 |
+| **A2** | `?date=YYYY-MM-DD` on `consumption/daily`; all responses now carry `server_date` | The KPI refresh downloaded a whole month to read one row. §8.9 |
+| **A1** | `CONFIG = @json($config)` in both dashboards; `SERVER_TODAY`/`SERVER_MONTH` replace browser-clock date derivation in `fetchTodayUnits()` and `CURRENT_PERIOD_START` | Rollups are keyed to the platform timezone, so any viewer whose local date differed matched no row and the poll overwrote a correct value with `0`. §8.5 |
+| **A9** | `SESSION_SECURE_COOKIE` defaults from `APP_ENV`; `URL::forceScheme('https')` in production; new `SecurityHeaders` middleware (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) | The setting was absent from both env files *and* had no config default, so it resolved to `null` and production cookies were never `Secure`. §9 |
+| **A5** | [DEVICE_CLAIMING.md](DEVICE_CLAIMING.md) design; plus its §8 interim fix — cross-column topic uniqueness in both web forms and a unique index on `availability_topic` | Customers bound meters by typing an MQTT topic. Squatting an unregistered topic captured a future meter's readings, and `availability_topic` had no uniqueness at all. §8.2 |
+| **A13** | [.github/workflows/ci.yml](.github/workflows/ci.yml) — suite on PHP 8.2 + 8.3, `pint --test`, `composer audit`, asset build | First automated gate on the repo. §10 |
+| — | One-time `pint` pass (73 files) + `.git-blame-ignore-revs` | `pint --test` failed on 72 files at HEAD; CI would have been red on day one. There was no house style to codify instead — configuring Pint to align `=>` flagged *more* files (93) than the default preset (73), because the codebase aligned inconsistently. |
+| — | `composer update` inside existing constraints | `composer audit` reported 28 advisories (4 high). All cleared without a single major bump or constraint change. **`php-mqtt/laravel-client` 1.7→1.8 and `reverb` 1.8→1.11 sit under ingestion and broadcast — restart both after deploying and confirm a fresh `meter_readings` row lands.** |
+| — | Un-skipped three cross-tenant tests in `AuthenticationTest` | They had **never executed**. §11 |
+
+**Deliberately skipped:** **A8** (real mail transport) and **A4** (email
+verification), for want of a mail provider. They are a pair — A4 without A8
+dead-ends every signup on the verify screen. Consequences and the pick-up
+procedure are in [PENDING_WORK.md §4a](PENDING_WORK.md); the deadline is **before
+FGAC Phase 7**, because both rewrite `User.php`.
+
+**Deferred with a trigger:** monthly RANGE partitioning of `meter_readings`
+(A11b). The suite runs on SQLite, which has no partitioning, so a driver-guarded
+migration would put a schema shape into production that CI never exercises.
+Revisit when the prune job exceeds ~2 minutes or the table passes ~50 M rows.
+
+### Week 2 — not started
+
+Broker security and data safety: **A7** TLS on MQTT (config has no `tls` block
+at all despite `MQTT_PORT=8883` — step 0 is a packet capture to find out what
+that port actually serves), **A6** per-device broker credentials + topic ACLs,
+**A10** encrypted off-server backups with a tested restore, **A11a**
+`raw_payload` retention, **A19** an ingestion capacity baseline.
+
+Week 2 is the first work needing infrastructure access and a coordinated OTA
+window rather than only code.
+
+### Known-unfixed, accepted for the pilot
+
+- **A compromised meter can publish arbitrary readings for itself.** Per-device
+  broker credentials (A6) prove *which* device is talking, not that the data is
+  true, and [MeterPayloadValidator](app/Services/Meters/MeterPayloadValidator.php)
+  checks only `is_numeric` — no plausibility bounds. **Must be revisited before
+  consumption data drives money.**
+- **Ingestion is a single-threaded, file-locked, single-instance consumer** doing
+  roughly ten queries per message. At the 10 K-device target that is ~167 msg/s
+  ≈ 1,670 queries/s in one PHP process, which is not reachable — the realistic
+  ceiling is likely 1–3 K devices. A19 measures it; the fix is architectural.
+- **`script-src` gives no XSS protection.** The CSP keeps `'unsafe-inline'`
+  (inline dashboard JS) *and* `'unsafe-eval'` (Alpine compiles every directive
+  expression with `new AsyncFunction`). Removing the latter needs Alpine's CSP
+  build, which forbids expressions in markup and touches every Blade file — a
+  bigger job than extracting the dashboard JS. Output escaping is currently the
+  primary defence, not a backstop.
+- **No privilege-change audit trail.** `PermissionController::update` syncs roles
+  and grants with no record of who did it.
+
+---
+
 *Companion documents:* [RUNNING_LOCALLY.md](RUNNING_LOCALLY.md) (setup),
 [OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md) (production operations),
 [erd.md](erd.md) (schema diagram), [use-case.md](use-case.md) (product
-scenarios), [PENDING_WORK.md](PENDING_WORK.md) (what's next).
+scenarios), [DEVICE_CLAIMING.md](DEVICE_CLAIMING.md) (how devices will bind to
+accounts), [PENDING_WORK.md](PENDING_WORK.md) (what's next).
