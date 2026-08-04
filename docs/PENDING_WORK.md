@@ -55,7 +55,48 @@ and its precedence rules) rather than adding a racing command; the per-meter
 `offline_enabled` opt-out is reused, so there is no migration.
 
 ## 4. Noted, deliberately deferred
-- Real mail transport (`MAIL_MAILER=log` today — bell works without it; email needs SES/Postmark).
+
+### 4a. Real mail transport + email verification — SKIPPED 2026-08-04 (decision)
+Both were scheduled for the commercial-hardening sprint (items A8 and A4) and were
+**deliberately skipped** because no mail provider was available at the time. They are a
+pair: A4 must never ship without A8, or every new signup dead-ends on the "verify your
+email" screen with the link sitting in a log file.
+
+**What is broken while this stands:**
+- `MAIL_MAILER=log` — every queued `AlertDigestNotification` writes its mail leg to
+  `storage/logs/laravel.log`. The bell still works (the `database` + `broadcast` channels
+  are independent), so this is silent: a customer whose meter goes offline gets an in-app
+  notification and no email.
+- **Password reset is non-functional** for the same reason — no account can be recovered.
+- The `verified` middleware on every route in `routes/web.php` is **decorative**. `User`
+  does not implement `MustVerifyEmail`, so Laravel's `EnsureEmailIsVerified` short-circuits
+  on its `instanceof` check and every unverified user passes. `Registered` therefore never
+  fires `SendEmailVerificationNotification` either. `tests/Feature/Auth/EmailVerificationTest.php`
+  is green regardless, because the `MustVerifyEmail` *trait* is present on the framework's
+  base class — the contract is what's missing. **Anyone can register with an address they
+  do not own and get immediate access to that account.**
+
+**To pick this up (roughly half a day once credentials exist):**
+1. A8 — set `MAIL_MAILER=smtp` plus host/port/username/password/from-address. Any
+   transactional provider's SMTP works with **no new composer package**; the `ses`,
+   `postmark` and `resend` mailers in `config/mail.php` each need their bridge installed
+   first. SPF + DKIM on the sending domain is the real long pole (SES additionally starts
+   sandboxed).
+2. A4 — uncomment the import at `app/Models/User.php:5` and add `implements MustVerifyEmail`;
+   **ship a backfill migration setting `email_verified_at = now()` for all existing users**
+   or the contract locks out every current account; add throttles to the register / login /
+   forgot-password routes in `routes/auth.php` (login and forgot-password carry none today)
+   **keyed on email+IP, not IP alone** — IP-only throttling makes customers behind
+   carrier-grade NAT rate-limit each other.
+
+**Deadline:** A4 must land **before FGAC Phase 7**. Both rewrite `app/Models/User.php`
+(Phase 7 strips the role helpers and `'role'` from `$fillable`), and doing them in one
+window makes a login regression impossible to attribute.
+
+**Knock-on:** the device-claiming design (A5) specifies that claiming requires a verified
+account, so until A4 lands the claim code is a weaker primitive than designed.
+
+### 4b. Other deferrals
 - New device types (AC/switch/water): add a payload processor + a detector; `alert_events` and the delivery
   pipeline need no changes. Readings-table strategy decision noted in `docs/erd.md`.
 - Raw-readings export was intentionally **not** built (product decision: aggregate exports only).
