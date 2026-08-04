@@ -39,13 +39,13 @@ class PermissionController extends Controller
         }
 
         return view('users.permissions', [
-            'user'            => $user,
-            'bundles'         => Role::where('name', '!=', 'super_admin')->with('permissions')->orderBy('id')->get(),
+            'user' => $user,
+            'bundles' => Role::where('name', '!=', 'super_admin')->with('permissions')->orderBy('id')->get(),
             'assignedBundles' => $user->roles->pluck('name')->all(),
-            'directGrants'    => $user->permissions->pluck('name')->all(),
-            'viaBundles'      => $viaBundles,
-            'builtIn'         => PermissionSeeder::BUILT_IN,
-            'catalog'         => collect(PermissionSeeder::GRANTABLE)
+            'directGrants' => $user->permissions->pluck('name')->all(),
+            'viaBundles' => $viaBundles,
+            'builtIn' => PermissionSeeder::BUILT_IN,
+            'catalog' => collect(PermissionSeeder::GRANTABLE)
                 ->groupBy(fn (string $slug) => Str::before($slug, '.')),
         ]);
     }
@@ -55,12 +55,12 @@ class PermissionController extends Controller
         $this->guardTarget($user);
 
         $validated = $request->validate([
-            'bundles'   => ['sometimes', 'array'],
+            'bundles' => ['sometimes', 'array'],
             // super_admin is deliberately not assignable from any screen —
             // promote via CLI only (privilege-escalation guard).
             'bundles.*' => [Rule::in(Role::where('name', '!=', 'super_admin')->pluck('name'))],
-            'direct'    => ['sometimes', 'array'],
-            'direct.*'  => [Rule::in([...PermissionSeeder::BUILT_IN, ...PermissionSeeder::GRANTABLE])],
+            'direct' => ['sometimes', 'array'],
+            'direct.*' => [Rule::in([...PermissionSeeder::BUILT_IN, ...PermissionSeeder::GRANTABLE])],
         ]);
 
         DB::transaction(function () use ($user, $validated) {

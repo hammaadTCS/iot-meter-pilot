@@ -19,14 +19,14 @@ class MeterPayloadValidator
      */
     public function validate(array $payload): MeterPayloadValidationResult
     {
-        if (!array_key_exists('ts', $payload) || $this->isBlank($payload['ts'])) {
+        if (! array_key_exists('ts', $payload) || $this->isBlank($payload['ts'])) {
             return MeterPayloadValidationResult::invalid(
                 'missing_ts',
                 'Payload error: missing required `ts` timestamp.',
             );
         }
 
-        if (!is_numeric($payload['ts']) || (int) $payload['ts'] <= 0) {
+        if (! is_numeric($payload['ts']) || (int) $payload['ts'] <= 0) {
             return MeterPayloadValidationResult::invalid(
                 'invalid_ts',
                 'Payload error: `ts` must be a positive numeric timestamp.',
@@ -42,10 +42,11 @@ class MeterPayloadValidator
 
             if ($this->isBlank($value)) {
                 $measurements[$field] = null;
+
                 continue;
             }
 
-            if (!is_numeric($value)) {
+            if (! is_numeric($value)) {
                 return MeterPayloadValidationResult::invalid(
                     'invalid_numeric_field',
                     "Payload error: `{$field}` must be numeric when present.",

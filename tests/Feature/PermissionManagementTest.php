@@ -57,7 +57,7 @@ class PermissionManagementTest extends TestCase
         $this->actingAs($this->superAdmin())
             ->patch(route('users.permissions.update', $target), [
                 'bundles' => ['prosumer'],
-                'direct'  => ['dashboard.view_system_stats'],
+                'direct' => ['dashboard.view_system_stats'],
             ])
             ->assertRedirect(route('users.permissions.show', $target));
 
@@ -84,7 +84,7 @@ class PermissionManagementTest extends TestCase
     public function test_a_super_admin_target_is_never_manageable(): void
     {
         $target = $this->superAdmin();
-        $actor  = $this->superAdmin();
+        $actor = $this->superAdmin();
 
         $this->actingAs($actor)->get(route('users.permissions.show', $target))->assertForbidden();
         $this->actingAs($actor)->patch(route('users.permissions.update', $target), [])->assertForbidden();

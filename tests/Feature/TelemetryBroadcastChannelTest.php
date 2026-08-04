@@ -73,7 +73,7 @@ class TelemetryBroadcastChannelTest extends TestCase
     {
         return Device::factory()->create([
             'user_id' => $user->id,
-            'type'    => 'meter',
+            'type' => 'meter',
         ]);
     }
 

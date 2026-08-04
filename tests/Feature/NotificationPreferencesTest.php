@@ -32,10 +32,10 @@ class NotificationPreferencesTest extends TestCase
         $user = User::factory()->consumer()->create();
 
         $this->actingAs($user)->patch('/settings/notifications', [
-            'min_severity'      => 'critical',
+            'min_severity' => 'critical',
             'quiet_hours_start' => '22:00',
-            'quiet_hours_end'   => '06:00',
-            'fleet_scope'       => 'own',
+            'quiet_hours_end' => '06:00',
+            'fleet_scope' => 'own',
             // mail_enabled omitted → unchecked → false
         ])->assertRedirect();
 
@@ -53,7 +53,7 @@ class NotificationPreferencesTest extends TestCase
 
         $this->actingAs($user)->patch('/settings/notifications', [
             'min_severity' => 'warning',
-            'fleet_scope'  => 'all', // attempted escalation
+            'fleet_scope' => 'all', // attempted escalation
         ])->assertRedirect();
 
         $this->assertSame('own', NotificationPreference::where('user_id', $user->id)->value('fleet_scope'));
@@ -65,7 +65,7 @@ class NotificationPreferencesTest extends TestCase
 
         $this->actingAs($admin)->patch('/settings/notifications', [
             'min_severity' => 'warning',
-            'fleet_scope'  => 'all',
+            'fleet_scope' => 'all',
         ])->assertRedirect();
 
         $this->assertSame('all', NotificationPreference::where('user_id', $admin->id)->value('fleet_scope'));

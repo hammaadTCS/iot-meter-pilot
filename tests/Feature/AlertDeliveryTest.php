@@ -46,8 +46,8 @@ class AlertDeliveryTest extends TestCase
         $this->artisan('meters:scan-health')->assertExitCode(0);
 
         $this->assertDatabaseHas('pending_alert_notifications', [
-            'user_id'       => $user->id,
-            'transition'    => 'opened',
+            'user_id' => $user->id,
+            'transition' => 'opened',
             'dispatched_at' => null,
         ]);
     }
@@ -84,7 +84,7 @@ class AlertDeliveryTest extends TestCase
 
         Notification::assertSentToTimes($user, AlertDigestNotification::class, 1);
         $this->assertDatabaseMissing('pending_alert_notifications', [
-            'user_id'       => $user->id,
+            'user_id' => $user->id,
             'dispatched_at' => null,
         ]);
     }
@@ -93,7 +93,7 @@ class AlertDeliveryTest extends TestCase
     {
         Notification::fake();
 
-        $user  = User::factory()->create();
+        $user = User::factory()->create();
         $meter = $this->staleMeter($user);
 
         $this->artisan('meters:scan-health');       // opens → buffered
@@ -103,7 +103,7 @@ class AlertDeliveryTest extends TestCase
         $this->artisan('meters:scan-health');        // recovers → buffered as resolved
 
         $this->assertDatabaseHas('pending_alert_notifications', [
-            'user_id'    => $user->id,
+            'user_id' => $user->id,
             'transition' => 'resolved',
         ]);
     }
@@ -113,12 +113,12 @@ class AlertDeliveryTest extends TestCase
         $user = User::factory()->create();
 
         $pref = new NotificationPreference([
-            'user_id'           => $user->id,
-            'mail_enabled'      => true,
-            'database_enabled'  => true,
+            'user_id' => $user->id,
+            'mail_enabled' => true,
+            'database_enabled' => true,
             'broadcast_enabled' => true,
-            'min_severity'      => 'critical', // mail only for critical
-            'fleet_scope'       => 'own',
+            'min_severity' => 'critical', // mail only for critical
+            'fleet_scope' => 'own',
         ]);
 
         // A warning is below the mail floor — in-app stays, mail drops.
@@ -132,7 +132,7 @@ class AlertDeliveryTest extends TestCase
 
         // Quiet hours suppress mail (but keep the in-app record).
         $pref->quiet_hours_start = '22:00';
-        $pref->quiet_hours_end   = '06:00';
+        $pref->quiet_hours_end = '06:00';
         $quiet = $pref->channelsFor('critical', Carbon::parse('2026-07-02 23:00'));
         $this->assertNotContains('mail', $quiet);
         $this->assertContains('database', $quiet);
@@ -141,12 +141,12 @@ class AlertDeliveryTest extends TestCase
     private function staleMeter(User $owner): Device
     {
         return Device::create([
-            'code'         => 'meter-'.fake()->unique()->slug(),
-            'name'         => 'Meter '.fake()->unique()->word(),
-            'type'         => 'meter',
-            'mqtt_topic'   => 'meters/'.fake()->unique()->slug(),
-            'is_active'    => true,
-            'user_id'      => $owner->id,
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
+            'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
+            'is_active' => true,
+            'user_id' => $owner->id,
             'last_seen_at' => now()->subMinutes(4), // telemetry_stale → warning
         ]);
     }

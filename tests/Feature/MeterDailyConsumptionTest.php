@@ -143,11 +143,11 @@ class MeterDailyConsumptionTest extends TestCase
     private function createMeter(): Device
     {
         return Device::create([
-            'code'       => 'meter-'.fake()->unique()->slug(),
-            'name'       => 'Meter '.fake()->unique()->word(),
-            'type'       => 'meter',
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
-            'is_active'  => true,
+            'is_active' => true,
         ]);
     }
 }

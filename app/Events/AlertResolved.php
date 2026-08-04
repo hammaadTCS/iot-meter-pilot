@@ -15,7 +15,5 @@ class AlertResolved
 {
     use Dispatchable, SerializesModels;
 
-    public function __construct(public AlertEvent $alertEvent)
-    {
-    }
+    public function __construct(public AlertEvent $alertEvent) {}
 }

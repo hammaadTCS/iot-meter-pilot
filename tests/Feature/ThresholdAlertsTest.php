@@ -149,11 +149,11 @@ class ThresholdAlertsTest extends TestCase
         ]);
 
         LatestMeterState::create([
-            'device_id'   => $meter->id,
-            'ts'          => 1751500000,
-            'voltage'     => $voltage,
-            'power'       => $power,
-            'pf'          => $pf,
+            'device_id' => $meter->id,
+            'ts' => 1751500000,
+            'voltage' => $voltage,
+            'power' => $power,
+            'pf' => $pf,
             'received_at' => $receivedAt ?? now(),
         ]);
 

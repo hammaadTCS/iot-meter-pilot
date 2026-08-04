@@ -38,9 +38,9 @@ class EnqueueAlertForDelivery implements ShouldQueue
 
         foreach ($this->recipientIds($alert) as $userId) {
             PendingAlertNotification::create([
-                'user_id'        => $userId,
+                'user_id' => $userId,
                 'alert_event_id' => $alert->id,
-                'transition'     => $transition,
+                'transition' => $transition,
             ]);
         }
     }

@@ -32,10 +32,10 @@ class AlertEvent extends Model
     ];
 
     protected $casts = [
-        'context'      => 'array',
+        'context' => 'array',
         'triggered_at' => 'datetime',
-        'resolved_at'  => 'datetime',
-        'notified_at'  => 'datetime',
+        'resolved_at' => 'datetime',
+        'notified_at' => 'datetime',
     ];
 
     public function device(): BelongsTo

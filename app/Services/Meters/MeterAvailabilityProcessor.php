@@ -15,7 +15,7 @@ class MeterAvailabilityProcessor
 
         $device = Device::whereRaw('TRIM(availability_topic) = ?', [$topic])->first();
 
-        if (!$device) {
+        if (! $device) {
             return MeterAvailabilityProcessingResult::ignoredUnknownTopic();
         }
 
@@ -98,7 +98,7 @@ class MeterAvailabilityProcessor
             return $decoded ? 'online' : 'offline';
         }
 
-        if (!is_string($statusCandidate)) {
+        if (! is_string($statusCandidate)) {
             return 'unknown';
         }
 

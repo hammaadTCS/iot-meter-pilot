@@ -58,7 +58,13 @@
       "Bash(git --no-pager diff .claude/settings.json)",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(len\\(d['files']\\)\\)\")",
       "Bash(git archive *)",
-      "Bash(./vendor/bin/pint /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/pintdemo)"
+      "Bash(./vendor/bin/pint /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/pintdemo)",
+      "Bash(./vendor/bin/pint)",
+      "Bash(git --no-pager diff -w --stat)",
+      "Bash(git --no-pager diff -w app/Models/User.php app/Services/Meters/MeterPayloadValidationResult.php database/seeders/DatabaseSeeder.php app/Models/PendingAlertNotification.php)",
+      "Bash(php -r 'require '\\\\''vendor/autoload.php'\\\\''; $r=new ReflectionClass\\(App\\\\Models\\\\User::class\\); echo '\\\\''class loads OK; traits: '\\\\''.implode\\('\\\\'', '\\\\'', $r->getTraitNames\\(\\)\\).PHP_EOL;')",
+      "Bash(git commit *)",
+      "Bash(git --no-pager log --oneline -3)"
     ]
   }
 }

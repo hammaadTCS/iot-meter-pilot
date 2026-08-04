@@ -19,7 +19,7 @@ class UserManagementController extends Controller
         if ($search = $request->get('search')) {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('email', 'like', "%{$search}%");
+                    ->orWhere('email', 'like', "%{$search}%");
             });
         }
 
@@ -41,15 +41,15 @@ class UserManagementController extends Controller
     public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'name'                  => ['required', 'string', 'max:255'],
-            'email'                 => ['required', 'email', 'unique:users,email'],
-            'password'              => ['required', 'string', 'min:8', 'confirmed'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'unique:users,email'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
             // Grant bundle, not legacy role. super_admin is deliberately
             // not creatable from any screen — promote via CLI only.
-            'bundle'                => ['required', Rule::in(['consumer', 'prosumer', 'field_engineer', 'fleet_operator'])],
-            'cnic'                  => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
-            'phone_number'          => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
-            'address'               => ['nullable', 'string', 'max:500'],
+            'bundle' => ['required', Rule::in(['consumer', 'prosumer', 'field_engineer', 'fleet_operator'])],
+            'cnic' => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
+            'phone_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
+            'address' => ['nullable', 'string', 'max:500'],
         ]);
 
         $bundle = $validated['bundle'];
@@ -70,6 +70,7 @@ class UserManagementController extends Controller
         // their live Voltage / Power / Monthly Units metrics without an N+1
         // query per card (see resources/views/components/device-card.blade.php).
         $user->load('devices.latestState');
+
         return view('users.show', compact('user'));
     }
 
@@ -83,11 +84,11 @@ class UserManagementController extends Controller
         // Access is managed on the permissions screen, not here — this
         // endpoint only edits profile fields and ignores any role input.
         $validated = $request->validate([
-            'name'         => ['required', 'string', 'max:255'],
-            'email'        => ['required', 'email', Rule::unique('users')->ignore($user->id)],
-            'cnic'         => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', Rule::unique('users')->ignore($user->id)],
+            'cnic' => ['nullable', 'string', 'regex:/^[0-9]{13}$/'],
             'phone_number' => ['nullable', 'string', 'regex:/^[0-9]{11}$/'],
-            'address'      => ['nullable', 'string', 'max:500'],
+            'address' => ['nullable', 'string', 'max:500'],
         ]);
 
         $user->update($validated);
@@ -116,5 +117,4 @@ class UserManagementController extends Controller
         return redirect()->route('users.index')
             ->with('success', 'User deleted.');
     }
-
 }

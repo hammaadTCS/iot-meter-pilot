@@ -32,16 +32,16 @@ class MeterAlertSettingsTest extends TestCase
             ->assertSee('Electrical safety');
 
         $this->patch("/devices/{$meter->id}/alerts", [
-            'monthly_budget_kwh'      => 300,
+            'monthly_budget_kwh' => 300,
             'monthly_budget_warn_pct' => 90,
-            'daily_budget_kwh'        => '',      // blank → off
-            'anomaly_enabled'         => '1',
-            'anomaly_multiplier'      => 2.5,
-            'voltage_high'            => 250,
-            'voltage_low'             => '',      // blank → off
-            'power_max_kw'            => 5,
-            'pf_min'                  => 0.85,
-            'offline_enabled'         => '1',
+            'daily_budget_kwh' => '',      // blank → off
+            'anomaly_enabled' => '1',
+            'anomaly_multiplier' => 2.5,
+            'voltage_high' => 250,
+            'voltage_low' => '',      // blank → off
+            'power_max_kw' => 5,
+            'pf_min' => 0.85,
+            'offline_enabled' => '1',
         ])->assertRedirect();
 
         $s = MeterAlertSetting::where('device_id', $meter->id)->firstOrFail();
@@ -70,12 +70,12 @@ class MeterAlertSettingsTest extends TestCase
     private function meterFor(User $owner): Device
     {
         return Device::create([
-            'code'       => 'meter-'.fake()->unique()->slug(),
-            'name'       => 'Meter '.fake()->unique()->word(),
-            'type'       => 'meter',
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
-            'is_active'  => true,
-            'user_id'    => $owner->id,
+            'is_active' => true,
+            'user_id' => $owner->id,
         ]);
     }
 }

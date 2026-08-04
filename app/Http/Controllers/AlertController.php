@@ -16,7 +16,7 @@ class AlertController extends Controller
      */
     public function index(Request $request): View
     {
-        $status   = $request->query('status');
+        $status = $request->query('status');
         $severity = $request->query('severity');
 
         $alerts = AlertEvent::query()
@@ -29,7 +29,7 @@ class AlertController extends Controller
             ->withQueryString();
 
         return view('alerts.index', [
-            'alerts'  => $alerts,
+            'alerts' => $alerts,
             'filters' => ['status' => $status, 'severity' => $severity],
         ]);
     }

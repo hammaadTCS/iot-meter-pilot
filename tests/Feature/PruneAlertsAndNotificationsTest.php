@@ -47,14 +47,14 @@ class PruneAlertsAndNotificationsTest extends TestCase
     public function test_prunes_drained_buffer_and_old_resolved_alerts(): void
     {
         Carbon::setTestNow('2026-07-02 12:00:00');
-        $user   = User::factory()->create();
+        $user = User::factory()->create();
         $device = Device::create([
             'code' => 'm-'.Str::random(6), 'name' => 'M', 'type' => 'meter',
             'mqtt_topic' => 'meters/'.Str::random(6), 'is_active' => true, 'user_id' => $user->id,
         ]);
 
         $oldResolved = $this->alert($device, 'resolved', resolvedAt: now()->subDays(120));
-        $openAlert   = $this->alert($device, 'open', resolvedAt: null);
+        $openAlert = $this->alert($device, 'open', resolvedAt: null);
 
         PendingAlertNotification::create([
             'user_id' => $user->id, 'alert_event_id' => $openAlert->id,
@@ -75,28 +75,28 @@ class PruneAlertsAndNotificationsTest extends TestCase
     private function insertNotification(User $user, ?Carbon $readAt, Carbon $createdAt): void
     {
         DB::table('notifications')->insert([
-            'id'                => (string) Str::uuid(),
-            'type'              => 'App\\Notifications\\AlertDigestNotification',
-            'notifiable_type'   => $user->getMorphClass(),
-            'notifiable_id'     => $user->id,
-            'data'              => json_encode(['title' => 'x']),
-            'read_at'           => $readAt,
-            'created_at'        => $createdAt,
-            'updated_at'        => $createdAt,
+            'id' => (string) Str::uuid(),
+            'type' => 'App\\Notifications\\AlertDigestNotification',
+            'notifiable_type' => $user->getMorphClass(),
+            'notifiable_id' => $user->id,
+            'data' => json_encode(['title' => 'x']),
+            'read_at' => $readAt,
+            'created_at' => $createdAt,
+            'updated_at' => $createdAt,
         ]);
     }
 
     private function alert(Device $device, string $status, ?Carbon $resolvedAt): AlertEvent
     {
         return AlertEvent::create([
-            'device_id'    => $device->id,
-            'device_type'  => 'meter',
-            'alert_type'   => 'telemetry_down',
-            'severity'     => 'critical',
-            'status'       => $status,
-            'message'      => 'x',
+            'device_id' => $device->id,
+            'device_type' => 'meter',
+            'alert_type' => 'telemetry_down',
+            'severity' => 'critical',
+            'status' => $status,
+            'message' => 'x',
             'triggered_at' => now()->subDays(130),
-            'resolved_at'  => $resolvedAt,
+            'resolved_at' => $resolvedAt,
         ]);
     }
 }

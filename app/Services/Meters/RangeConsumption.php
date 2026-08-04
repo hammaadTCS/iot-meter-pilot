@@ -51,22 +51,22 @@ class RangeConsumption
     /**
      * Units (kWh) consumed by a device within [$start, $end].
      *
-     * @param  int          $deviceId  the device whose readings to measure
-     * @param  Carbon       $start     inclusive lower bound (effective timestamp)
-     * @param  Carbon|null  $end       inclusive upper bound, or null for "up to now"
+     * @param  int  $deviceId  the device whose readings to measure
+     * @param  Carbon  $start  inclusive lower bound (effective timestamp)
+     * @param  Carbon|null  $end  inclusive upper bound, or null for "up to now"
      * @return array{units_kwh: float, reading_count: int}
      */
     public static function unitsForWindow(int $deviceId, Carbon $start, ?Carbon $end = null): array
     {
         $start = $start->copy();
-        $end   = $end ? $end->copy() : Carbon::now();
+        $end = $end ? $end->copy() : Carbon::now();
 
         $consumedWh = self::consumedWhForWindow($deviceId, $start, $end);
-        $count      = self::countReadings($deviceId, $start, $end);
+        $count = self::countReadings($deviceId, $start, $end);
 
         return [
             // Integer Wh up to here; round once. Wh/1000 is exact to 3 dp.
-            'units_kwh'     => round(max(0, $consumedWh) / 1000, 3),
+            'units_kwh' => round(max(0, $consumedWh) / 1000, 3),
             'reading_count' => $count,
         ];
     }
@@ -77,7 +77,7 @@ class RangeConsumption
     private static function consumedWhForWindow(int $deviceId, Carbon $start, Carbon $end): int
     {
         $startDay = $start->copy()->startOfDay();
-        $endDay   = $end->copy()->startOfDay();
+        $endDay = $end->copy()->startOfDay();
 
         // Single calendar day (or inverted) → exact raw walk, cheap.
         if ($startDay->equalTo($endDay) || $end->lessThan($start)) {
@@ -124,20 +124,20 @@ class RangeConsumption
      * value from outside the window (used for the last partial day), and a first
      * in-window reading below that baseline is correctly treated as a reset.
      *
-     * @return array{0: int, 1: int}  [consumed Wh (>= 0), reading count]
+     * @return array{0: int, 1: int} [consumed Wh (>= 0), reading count]
      */
     private static function rawWalk(int $deviceId, Carbon $start, Carbon $end, ?int $explicitBaseline): array
     {
         $rows = self::windowQuery($deviceId, $start, $end)
-            ->orderByRaw(self::RECORDED_AT_SQL . ' ASC')
+            ->orderByRaw(self::RECORDED_AT_SQL.' ASC')
             ->orderBy('id', 'ASC')
             ->select('energy_pzem_wh')
             ->cursor();
 
         $baseline = $explicitBaseline;
-        $last     = $explicitBaseline ?? 0;
+        $last = $explicitBaseline ?? 0;
         $rollover = 0;
-        $count    = 0;
+        $count = 0;
 
         foreach ($rows as $row) {
             $energy = (int) $row->energy_pzem_wh;
@@ -145,7 +145,8 @@ class RangeConsumption
 
             if ($baseline === null) {
                 $baseline = $energy;
-                $last     = $energy;
+                $last = $energy;
+
                 continue;
             }
 
@@ -184,7 +185,7 @@ class RangeConsumption
                 $w->where('received_at', '<', $boundary)
                     ->orWhere(fn ($leg) => $leg->whereNull('received_at')->where('created_at', '<', $boundary));
             })
-            ->orderByRaw(self::RECORDED_AT_SQL . ' DESC')
+            ->orderByRaw(self::RECORDED_AT_SQL.' DESC')
             ->orderBy('id', 'DESC')
             ->value('energy_pzem_wh');
 

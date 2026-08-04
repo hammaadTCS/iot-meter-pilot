@@ -99,9 +99,9 @@ class BackfillDailyConsumption extends Command
                 // New day: continue from the running counter, or seed the very
                 // first day at its own reading (zero consumption to start).
                 $days[$period] = [
-                    'baseline'   => $carryLast ?? $energy,
-                    'last'       => $energy,
-                    'rollover'   => 0,
+                    'baseline' => $carryLast ?? $energy,
+                    'last' => $energy,
+                    'rollover' => 0,
                     'reading_id' => (int) $reading->id,
                     'reading_at' => (string) $effectiveAt,
                 ];

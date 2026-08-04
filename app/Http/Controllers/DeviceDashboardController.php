@@ -28,10 +28,10 @@ class DeviceDashboardController extends Controller
     private function jsConfig(Device $device): array
     {
         return [
-            'deviceId'    => $device->id,
+            'deviceId' => $device->id,
             'serverToday' => now()->toDateString(),
             'serverMonth' => now()->format('Y-m'),
-            'timezone'    => config('app.timezone'),
+            'timezone' => config('app.timezone'),
         ];
     }
 
@@ -39,7 +39,7 @@ class DeviceDashboardController extends Controller
     {
         $this->authorize('view', $device);
 
-        if (!$device->is_active) {
+        if (! $device->is_active) {
             return view('devices.dashboards.placeholder', [
                 'device' => $device,
                 'reason' => 'disabled',
@@ -61,10 +61,10 @@ class DeviceDashboardController extends Controller
         // 4 KPI tiles with historical data behind a click, served as hour/day
         // aggregates. The raw-readings APIs enforce the same predicate.
         return match ($device->type) {
-            'meter'  => Auth::user()->hasFullMeterDashboard()
+            'meter' => Auth::user()->hasFullMeterDashboard()
                 ? $this->showMeter($device)
                 : $this->showMeterSimple($device),
-            default  => view('devices.dashboards.placeholder', compact('device')),
+            default => view('devices.dashboards.placeholder', compact('device')),
         };
     }
 
@@ -88,17 +88,17 @@ class DeviceDashboardController extends Controller
         $user = Auth::user();
 
         return view('devices.dashboards.meter-simple', [
-            'config'             => $this->jsConfig($device),
+            'config' => $this->jsConfig($device),
             // Section visibility mirrors the full dashboard's slugs: live_data
             // gates the KPI tiles, history gates the drill-down (whose API,
             // aggregate(), enforces the same slug server-side).
-            'canViewLiveData'    => $user->can('meter.live_data'),
-            'canViewHistory'     => $user->can('meter.history'),
-            'device'             => $device,
-            'currentSnapshot'    => $device->currentSnapshot(),
+            'canViewLiveData' => $user->can('meter.live_data'),
+            'canViewHistory' => $user->can('meter.history'),
+            'device' => $device,
+            'currentSnapshot' => $device->currentSnapshot(),
             'deviceAvailability' => $device->availabilitySnapshot(),
-            'deviceIssue'        => $device->issueSnapshot(),
-            'todayUnits'         => $todayUnits !== null ? (float) $todayUnits : null,
+            'deviceIssue' => $device->issueSnapshot(),
+            'todayUnits' => $todayUnits !== null ? (float) $todayUnits : null,
         ]);
     }
 
@@ -135,7 +135,7 @@ class DeviceDashboardController extends Controller
             ->get(['period_start', 'units_kwh'])
             ->map(fn ($row) => [
                 'period_start' => $row->period_start->format('Y-m-d'),
-                'units_kwh'    => (float) $row->units_kwh,
+                'units_kwh' => (float) $row->units_kwh,
             ]);
 
         // Seed the Daily Units KPI (today's consumption) so the card renders
@@ -179,24 +179,24 @@ class DeviceDashboardController extends Controller
         $user = Auth::user();
 
         return view('devices.dashboards.meter', [
-            'config'             => $this->jsConfig($device),
+            'config' => $this->jsConfig($device),
             // Section visibility (plan §7b–e): the view renders only the
             // permitted sections; the matching API endpoints enforce the
             // same slugs server-side. The range bar rides with charts/history.
-            'canViewLiveData'    => $user->can('meter.live_data'),
-            'canViewCharts'      => $user->can('meter.charts'),
-            'canViewHistory'     => $user->can('meter.history'),
-            'device'             => $device,
-            'todayUnits'         => $todayUnits !== null ? (float) $todayUnits : null,
-            'dailyBreakdown'     => $dailyBreakdown,
-            'reportMonths'       => $reportMonths,
-            'currentMonth'       => $currentMonth->format('Y-m'),
-            'currentMonthTotal'  => $currentMonthTotal,
-            'allDevices'         => collect([]), // picker removed; kept for API compat
-            'currentSnapshot'    => $device->currentSnapshot(),
+            'canViewLiveData' => $user->can('meter.live_data'),
+            'canViewCharts' => $user->can('meter.charts'),
+            'canViewHistory' => $user->can('meter.history'),
+            'device' => $device,
+            'todayUnits' => $todayUnits !== null ? (float) $todayUnits : null,
+            'dailyBreakdown' => $dailyBreakdown,
+            'reportMonths' => $reportMonths,
+            'currentMonth' => $currentMonth->format('Y-m'),
+            'currentMonthTotal' => $currentMonthTotal,
+            'allDevices' => collect([]), // picker removed; kept for API compat
+            'currentSnapshot' => $device->currentSnapshot(),
             'deviceAvailability' => $device->availabilitySnapshot(),
-            'deviceIssue'        => $device->issueSnapshot(),
-            'recentReadings'     => $recentReadings,
+            'deviceIssue' => $device->issueSnapshot(),
+            'recentReadings' => $recentReadings,
             'monthlyConsumption' => $monthlyConsumption,
         ]);
     }

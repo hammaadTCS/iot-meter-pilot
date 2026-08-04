@@ -27,7 +27,7 @@ class MeterAlertSettingsController extends Controller
         $this->authorizeAlertSettings($device);
 
         return view('devices.alerts', [
-            'device'   => $device,
+            'device' => $device,
             'settings' => MeterAlertSetting::forDevice($device),
         ]);
     }
@@ -37,14 +37,14 @@ class MeterAlertSettingsController extends Controller
         $this->authorizeAlertSettings($device);
 
         $validated = $request->validate([
-            'monthly_budget_kwh'      => ['nullable', 'numeric', 'min:0'],
+            'monthly_budget_kwh' => ['nullable', 'numeric', 'min:0'],
             'monthly_budget_warn_pct' => ['required', 'integer', 'min:1', 'max:99'],
-            'daily_budget_kwh'        => ['nullable', 'numeric', 'min:0'],
-            'anomaly_multiplier'      => ['required', 'numeric', 'min:1.1', 'max:10'],
-            'voltage_high'            => ['nullable', 'numeric', 'min:0', 'max:1000'],
-            'voltage_low'             => ['nullable', 'numeric', 'min:0', 'max:1000'],
-            'power_max_kw'            => ['nullable', 'numeric', 'min:0'],
-            'pf_min'                  => ['nullable', 'numeric', 'min:0', 'max:1'],
+            'daily_budget_kwh' => ['nullable', 'numeric', 'min:0'],
+            'anomaly_multiplier' => ['required', 'numeric', 'min:1.1', 'max:10'],
+            'voltage_high' => ['nullable', 'numeric', 'min:0', 'max:1000'],
+            'voltage_low' => ['nullable', 'numeric', 'min:0', 'max:1000'],
+            'power_max_kw' => ['nullable', 'numeric', 'min:0'],
+            'pf_min' => ['nullable', 'numeric', 'min:0', 'max:1'],
         ]);
 
         // A blank value means "that trigger is off" (stored as null). Booleans
@@ -52,16 +52,16 @@ class MeterAlertSettingsController extends Controller
         MeterAlertSetting::updateOrCreate(
             ['device_id' => $device->id],
             [
-                'monthly_budget_kwh'      => $request->filled('monthly_budget_kwh') ? $validated['monthly_budget_kwh'] : null,
+                'monthly_budget_kwh' => $request->filled('monthly_budget_kwh') ? $validated['monthly_budget_kwh'] : null,
                 'monthly_budget_warn_pct' => $validated['monthly_budget_warn_pct'],
-                'daily_budget_kwh'        => $request->filled('daily_budget_kwh') ? $validated['daily_budget_kwh'] : null,
-                'anomaly_enabled'         => $request->boolean('anomaly_enabled'),
-                'anomaly_multiplier'      => $validated['anomaly_multiplier'],
-                'voltage_high'            => $request->filled('voltage_high') ? $validated['voltage_high'] : null,
-                'voltage_low'             => $request->filled('voltage_low') ? $validated['voltage_low'] : null,
-                'power_max_kw'            => $request->filled('power_max_kw') ? $validated['power_max_kw'] : null,
-                'pf_min'                  => $request->filled('pf_min') ? $validated['pf_min'] : null,
-                'offline_enabled'         => $request->boolean('offline_enabled'),
+                'daily_budget_kwh' => $request->filled('daily_budget_kwh') ? $validated['daily_budget_kwh'] : null,
+                'anomaly_enabled' => $request->boolean('anomaly_enabled'),
+                'anomaly_multiplier' => $validated['anomaly_multiplier'],
+                'voltage_high' => $request->filled('voltage_high') ? $validated['voltage_high'] : null,
+                'voltage_low' => $request->filled('voltage_low') ? $validated['voltage_low'] : null,
+                'power_max_kw' => $request->filled('power_max_kw') ? $validated['power_max_kw'] : null,
+                'pf_min' => $request->filled('pf_min') ? $validated['pf_min'] : null,
+                'offline_enabled' => $request->boolean('offline_enabled'),
             ],
         );
 

@@ -19,12 +19,12 @@ class DeviceFactory extends Factory
         $code = 'MTR-'.fake()->unique()->numerify('#####');
 
         return [
-            'user_id'    => null,
-            'code'       => $code,
-            'name'       => fake()->streetName().' Meter',
-            'type'       => 'meter',
+            'user_id' => null,
+            'code' => $code,
+            'name' => fake()->streetName().' Meter',
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.strtolower($code).'/data',
-            'is_active'  => true,
+            'is_active' => true,
         ];
     }
 

@@ -110,13 +110,13 @@ class BackfillHourlyConsumption extends Command
                 // New hour: continue from the running counter, or seed the very
                 // first hour at its own reading (zero consumption to start).
                 $hours[$period] = [
-                    'baseline'   => $carryLast ?? $energy,
-                    'last'       => $energy,
-                    'rollover'   => 0,
-                    'v_sum'      => 0.0,
-                    'v_count'    => 0,
-                    'p_sum'      => 0.0,
-                    'p_count'    => 0,
+                    'baseline' => $carryLast ?? $energy,
+                    'last' => $energy,
+                    'rollover' => 0,
+                    'v_sum' => 0.0,
+                    'v_count' => 0,
+                    'p_sum' => 0.0,
+                    'p_count' => 0,
                     'reading_id' => (int) $reading->id,
                     'reading_at' => (string) $effectiveAt,
                 ];

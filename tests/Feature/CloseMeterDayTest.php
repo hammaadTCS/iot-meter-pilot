@@ -64,24 +64,24 @@ class CloseMeterDayTest extends TestCase
     private function openRow(Device $device, string $date, int $baseline, int $last, float $units): MeterDailyConsumption
     {
         return MeterDailyConsumption::create([
-            'device_id'          => $device->id,
-            'period_date'        => $date,
+            'device_id' => $device->id,
+            'period_date' => $date,
             'baseline_energy_wh' => $baseline,
-            'last_energy_wh'     => $last,
-            'rollover_wh'        => 0,
-            'units_kwh'          => $units,
-            'finalized_at'       => null,
+            'last_energy_wh' => $last,
+            'rollover_wh' => 0,
+            'units_kwh' => $units,
+            'finalized_at' => null,
         ]);
     }
 
     private function createMeter(): Device
     {
         return Device::create([
-            'code'       => 'meter-'.fake()->unique()->slug(),
-            'name'       => 'Meter '.fake()->unique()->word(),
-            'type'       => 'meter',
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
-            'is_active'  => true,
+            'is_active' => true,
         ]);
     }
 }

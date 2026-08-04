@@ -52,13 +52,13 @@ class DeviceReadingController extends Controller
     private function windowStart(string $range): Carbon
     {
         return match ($range) {
-            '1h'    => now()->subHour(),
-            '6h'    => now()->subHours(6),
-            '24h'   => now()->subDay(),
+            '1h' => now()->subHour(),
+            '6h' => now()->subHours(6),
+            '24h' => now()->subDay(),
             'today' => Carbon::today(),
-            '7d'    => now()->subDays(7),
-            '30d'   => now()->subDays(30),
-            'all'   => Carbon::createFromTimestamp(0),
+            '7d' => now()->subDays(7),
+            '30d' => now()->subDays(30),
+            'all' => Carbon::createFromTimestamp(0),
             default => now()->subHour(),
         };
     }
@@ -169,7 +169,7 @@ class DeviceReadingController extends Controller
         return [
             'id',
             'ts',
-            DB::raw(self::RECORDED_AT_SQL . ' as created_at'),
+            DB::raw(self::RECORDED_AT_SQL.' as created_at'),
             'received_at',
             'voltage',
             'current',
@@ -217,7 +217,7 @@ class DeviceReadingController extends Controller
         }
 
         // Fetch IDs only — a bigint column is tiny even for hundreds of thousands of rows.
-        $ids   = $baseQuery->orderByRaw(self::RECORDED_AT_SQL . ' ASC')->orderBy('id', 'ASC')->pluck('id');
+        $ids = $baseQuery->orderByRaw(self::RECORDED_AT_SQL.' ASC')->orderBy('id', 'ASC')->pluck('id');
         $total = $ids->count();
 
         if ($total === 0) {
@@ -229,7 +229,7 @@ class DeviceReadingController extends Controller
             $sampledIds = $ids->all();
         } else {
             // Pick every Nth ID so the result spans the full time range evenly.
-            $step       = (int) ceil($total / self::CHART_MAX_POINTS);
+            $step = (int) ceil($total / self::CHART_MAX_POINTS);
             $sampledIds = $ids
                 ->filter(fn ($id, int $i) => $i % $step === 0 || $i === $total - 1)
                 ->values()
@@ -239,7 +239,7 @@ class DeviceReadingController extends Controller
         // Fetch full column data only for the sampled IDs.
         $rows = DB::table(self::TABLE)
             ->whereIn('id', $sampledIds)
-            ->orderByRaw(self::RECORDED_AT_SQL . ' ASC')
+            ->orderByRaw(self::RECORDED_AT_SQL.' ASC')
             ->orderBy('id', 'ASC')
             ->select($this->readingColumns())
             ->get();
@@ -302,21 +302,21 @@ class DeviceReadingController extends Controller
                 ? rescue(fn () => Carbon::parse($request->query('after_received_at')), report: false)
                 : null;
 
-            $baseQuery->orderByRaw(self::RECORDED_AT_SQL . ' ASC')->orderBy('id', 'ASC');
+            $baseQuery->orderByRaw(self::RECORDED_AT_SQL.' ASC')->orderBy('id', 'ASC');
             $this->applyCursor($baseQuery, $afterRecordedAt, $afterId);
 
             return response()->json($baseQuery->get());
         }
 
         // ── Paginated path ────────────────────────────────────────────────────
-        $perPage  = self::TABLE_PER_PAGE;
-        $total    = (clone $baseQuery)->count();
+        $perPage = self::TABLE_PER_PAGE;
+        $total = (clone $baseQuery)->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
-        $page     = min(max(1, (int) $request->query('page', 1)), $lastPage);
-        $offset   = ($page - 1) * $perPage;
+        $page = min(max(1, (int) $request->query('page', 1)), $lastPage);
+        $offset = ($page - 1) * $perPage;
 
         $rows = $baseQuery
-            ->orderByRaw(self::RECORDED_AT_SQL . ' DESC')
+            ->orderByRaw(self::RECORDED_AT_SQL.' DESC')
             ->orderBy('id', 'DESC')
             ->limit($perPage)
             ->offset($offset)
@@ -326,9 +326,9 @@ class DeviceReadingController extends Controller
             'data' => $rows,
             'meta' => [
                 'current_page' => $page,
-                'last_page'    => $lastPage,
-                'per_page'     => $perPage,
-                'total'        => $total,
+                'last_page' => $lastPage,
+                'per_page' => $perPage,
+                'total' => $total,
             ],
         ]);
     }
@@ -385,15 +385,15 @@ class DeviceReadingController extends Controller
             $fallback = $this->dayBuckets($device->id, $windowStart, $effectiveEnd);
 
             if ($fallback->isNotEmpty()) {
-                $bucket  = 'day';
+                $bucket = 'day';
                 $buckets = $fallback;
             }
         }
 
         return response()->json([
-            'bucket'  => $bucket,
-            'from'    => $windowStart->toDateTimeString(),
-            'to'      => $windowEnd?->toDateTimeString(),
+            'bucket' => $bucket,
+            'from' => $windowStart->toDateTimeString(),
+            'to' => $windowEnd?->toDateTimeString(),
             'buckets' => $buckets,
         ]);
     }
@@ -414,10 +414,10 @@ class DeviceReadingController extends Controller
             ->orderBy('period_start')
             ->get()
             ->map(fn (MeterHourlyConsumption $row) => [
-                'period'      => $row->period_start->format('Y-m-d H:i:s'),
-                'units_kwh'   => (float) $row->units_kwh,
+                'period' => $row->period_start->format('Y-m-d H:i:s'),
+                'units_kwh' => (float) $row->units_kwh,
                 'avg_voltage' => $row->averageVoltage(),
-                'avg_power'   => $row->averagePower(),
+                'avg_power' => $row->averagePower(),
             ])
             ->values();
     }
@@ -459,12 +459,12 @@ class DeviceReadingController extends Controller
                 $avg = $averagesByDay->get($day);
 
                 return [
-                    'period'      => $day,
-                    'units_kwh'   => (float) $row->units_kwh,
+                    'period' => $day,
+                    'units_kwh' => (float) $row->units_kwh,
                     'avg_voltage' => ($avg && (int) $avg->v_count > 0)
                         ? round((float) $avg->v_sum / (int) $avg->v_count, 1)
                         : null,
-                    'avg_power'   => ($avg && (int) $avg->p_count > 0)
+                    'avg_power' => ($avg && (int) $avg->p_count > 0)
                         ? round((float) $avg->p_sum / (int) $avg->p_count, 1)
                         : null,
                 ];
@@ -498,10 +498,10 @@ class DeviceReadingController extends Controller
         $result = RangeConsumption::unitsForWindow($device->id, $windowStart, $windowEnd);
 
         return response()->json([
-            'units_kwh'     => $result['units_kwh'],
+            'units_kwh' => $result['units_kwh'],
             'reading_count' => $result['reading_count'],
-            'from'          => $windowStart->toDateTimeString(),
-            'to'            => $windowEnd?->toDateTimeString(),
+            'from' => $windowStart->toDateTimeString(),
+            'to' => $windowEnd?->toDateTimeString(),
         ]);
     }
 
@@ -541,8 +541,8 @@ class DeviceReadingController extends Controller
                 ->value('units_kwh');
 
             return response()->json([
-                'date'        => $date->toDateString(),
-                'units_kwh'   => $units !== null ? (float) $units : null,
+                'date' => $date->toDateString(),
+                'units_kwh' => $units !== null ? (float) $units : null,
                 'server_date' => now()->toDateString(),
             ]);
         }
@@ -552,7 +552,7 @@ class DeviceReadingController extends Controller
             return response()->json(['error' => 'Invalid month (expected YYYY-MM).'], 422);
         }
 
-        $monthEnd   = $month->copy()->endOfMonth();
+        $monthEnd = $month->copy()->endOfMonth();
         $monthLabel = $month->format('Y-m');
 
         // Per-day units from the daily rollup (pre-aggregated, no raw scan).
@@ -563,7 +563,7 @@ class DeviceReadingController extends Controller
             ->orderBy('period_date')
             ->get(['period_date', 'units_kwh'])
             ->map(fn ($r) => [
-                'date'      => $r->period_date->format('Y-m-d'),
+                'date' => $r->period_date->format('Y-m-d'),
                 'units_kwh' => (float) $r->units_kwh,
             ])
             ->values();
@@ -579,14 +579,14 @@ class DeviceReadingController extends Controller
         $format = $request->query('format');
 
         if ($format === 'csv' || $format === 'json') {
-            $filename = $this->exportFilename($device, $format, 'daily-consumption-' . $monthLabel);
+            $filename = $this->exportFilename($device, $format, 'daily-consumption-'.$monthLabel);
 
             if ($format === 'json') {
                 return response()->streamDownload(function () use ($days, $total, $monthLabel) {
                     $out = fopen('php://output', 'w');
-                    fwrite($out, json_encode(['type' => 'summary', 'month' => $monthLabel, 'total_units_kwh' => $total]) . PHP_EOL);
+                    fwrite($out, json_encode(['type' => 'summary', 'month' => $monthLabel, 'total_units_kwh' => $total]).PHP_EOL);
                     foreach ($days as $day) {
-                        fwrite($out, json_encode($day) . PHP_EOL);
+                        fwrite($out, json_encode($day).PHP_EOL);
                     }
                     fclose($out);
                 }, $filename, ['Content-Type' => 'application/x-ndjson']);
@@ -598,16 +598,16 @@ class DeviceReadingController extends Controller
                 foreach ($days as $day) {
                     fputcsv($out, [$this->csvSafe($day['date']), $day['units_kwh']]);
                 }
-                fputcsv($out, ['TOTAL ' . $monthLabel, $total]);
+                fputcsv($out, ['TOTAL '.$monthLabel, $total]);
                 fclose($out);
             }, $filename, ['Content-Type' => 'text/csv']);
         }
 
         return response()->json([
-            'month'           => $monthLabel,
+            'month' => $monthLabel,
             'total_units_kwh' => $total,
-            'days'            => $days,
-            'server_date'     => now()->toDateString(),
+            'days' => $days,
+            'server_date' => now()->toDateString(),
         ]);
     }
 
@@ -650,7 +650,7 @@ class DeviceReadingController extends Controller
             return null;
         }
 
-        $dt = rescue(fn () => Carbon::createFromFormat('Y-m-d', $month . '-01'), report: false);
+        $dt = rescue(fn () => Carbon::createFromFormat('Y-m-d', $month.'-01'), report: false);
 
         if (! $dt || $dt->format('Y-m') !== $month) {
             return null;
@@ -668,12 +668,12 @@ class DeviceReadingController extends Controller
         $slug = preg_replace('/[^A-Za-z0-9_-]+/', '-', (string) ($device->code ?: ''));
         $slug = trim((string) $slug, '-');
         if ($slug === '') {
-            $slug = 'device-' . $device->id;
+            $slug = 'device-'.$device->id;
         }
 
         $ext = $format === 'json' ? 'ndjson' : 'csv';
 
-        return "meter-{$slug}-{$label}-" . now()->format('Ymd-His') . ".{$ext}";
+        return "meter-{$slug}-{$label}-".now()->format('Ymd-His').".{$ext}";
     }
 
     /**
@@ -685,10 +685,9 @@ class DeviceReadingController extends Controller
         $str = (string) $value;
 
         if ($str !== '' && in_array($str[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
-            return "'" . $str;
+            return "'".$str;
         }
 
         return $str;
     }
-
 }

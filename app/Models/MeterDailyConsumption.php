@@ -32,13 +32,13 @@ class MeterDailyConsumption extends Model
     ];
 
     protected $casts = [
-        'period_date'        => 'date',
+        'period_date' => 'date',
         // Cumulative Wh counters are whole numbers; cast for clean arithmetic.
         'baseline_energy_wh' => 'integer',
-        'last_energy_wh'     => 'integer',
-        'rollover_wh'        => 'integer',
-        'last_reading_at'    => 'datetime',
-        'finalized_at'       => 'datetime',
+        'last_energy_wh' => 'integer',
+        'rollover_wh' => 'integer',
+        'last_reading_at' => 'datetime',
+        'finalized_at' => 'datetime',
     ];
 
     /**
@@ -60,7 +60,7 @@ class MeterDailyConsumption extends Model
     public function recomputeUnits(): void
     {
         $baseline = (int) $this->baseline_energy_wh;
-        $last     = (int) $this->last_energy_wh;
+        $last = (int) $this->last_energy_wh;
         $rollover = (int) $this->rollover_wh;
 
         $consumedWh = max(0, $last - $baseline + $rollover);

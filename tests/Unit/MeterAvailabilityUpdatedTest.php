@@ -20,7 +20,7 @@ class MeterAvailabilityUpdatedTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 15:12:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->setAttribute('id', 12);
         $device->setAttribute('code', 'meter-availability');
         $device->setAttribute('name', 'Availability Meter');

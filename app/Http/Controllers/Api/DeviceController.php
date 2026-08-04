@@ -4,13 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Device;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
 
 class DeviceController extends Controller
 {
     use AuthorizesRequests;
+
     /**
      * Return all configured devices for the current user (or all if admin).
      */
@@ -51,7 +52,7 @@ class DeviceController extends Controller
                 'string',
                 'max:255',
                 // Code must be unique per user, not globally
-                'unique:devices,code,null,id,user_id,' . $user->id,
+                'unique:devices,code,null,id,user_id,'.$user->id,
             ],
             'name' => 'required|string|max:255',
             'type' => 'required|string|max:255',

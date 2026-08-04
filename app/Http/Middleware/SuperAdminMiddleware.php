@@ -11,7 +11,7 @@ class SuperAdminMiddleware
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if (!Auth::check() || !Auth::user()->isSuperAdmin()) {
+        if (! Auth::check() || ! Auth::user()->isSuperAdmin()) {
             abort(403, 'Super admin access required.');
         }
 

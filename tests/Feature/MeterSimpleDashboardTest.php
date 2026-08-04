@@ -36,7 +36,7 @@ class MeterSimpleDashboardTest extends TestCase
     {
         return Device::factory()->create([
             'user_id' => $owner->id,
-            'type'    => 'meter',
+            'type' => 'meter',
         ]);
     }
 
@@ -44,13 +44,13 @@ class MeterSimpleDashboardTest extends TestCase
     private function send(Device $device, int $ts, int $energy, float $voltage = 230.0, float $power = 400.0): void
     {
         app(MeterPayloadProcessor::class)->process($device->mqtt_topic, json_encode([
-            'ts'             => $ts,
-            'voltage'        => $voltage,
-            'current'        => 1.8,
-            'power'          => $power,
+            'ts' => $ts,
+            'voltage' => $voltage,
+            'current' => 1.8,
+            'power' => $power,
             'energy_pzem_wh' => $energy,
-            'frequency'      => 50.0,
-            'pf'             => 0.95,
+            'frequency' => 50.0,
+            'pf' => 0.95,
         ]));
     }
 

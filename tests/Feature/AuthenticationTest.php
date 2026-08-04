@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\User;
 use App\Models\Device;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -113,8 +113,9 @@ class AuthenticationTest extends TestCase
         $user2Device = $user2->devices()->first();
 
         // Skip if user2 has no devices (edge case in test)
-        if (!$user2Device) {
+        if (! $user2Device) {
             $this->markTestSkipped('User2 has no devices assigned');
+
             return;
         }
 
@@ -134,8 +135,9 @@ class AuthenticationTest extends TestCase
         $user2Device = $user2->devices()->first();
 
         // Skip if user2 has no devices (edge case in test)
-        if (!$user2Device) {
+        if (! $user2Device) {
             $this->markTestSkipped('User2 has no devices assigned');
+
             return;
         }
 
@@ -196,8 +198,9 @@ class AuthenticationTest extends TestCase
         $user2Device = User::where('email', 'user2@test.local')->first()->devices()->first();
 
         // Skip if user2 has no devices (edge case in test)
-        if (!$user2Device) {
+        if (! $user2Device) {
             $this->markTestSkipped('User2 has no devices assigned');
+
             return;
         }
 

@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class PendingAlertNotification extends Model
 {
     public const TRANSITION_OPENED = 'opened';
+
     public const TRANSITION_RESOLVED = 'resolved';
 
     protected $fillable = [

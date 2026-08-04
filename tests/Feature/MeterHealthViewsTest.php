@@ -131,16 +131,16 @@ class MeterHealthViewsTest extends TestCase
         ]);
 
         LatestMeterState::create([
-            'device_id'         => $meter->id,
-            'ts'                => 1776762780,
-            'voltage'           => 220.40,
-            'current'           => 0.226,
-            'power'             => 21.50,
-            'energy_pzem_wh'    => 77661,
+            'device_id' => $meter->id,
+            'ts' => 1776762780,
+            'voltage' => 220.40,
+            'current' => 0.226,
+            'power' => 21.50,
+            'energy_pzem_wh' => 77661,
             'monthly_units_kwh' => 2.921,
-            'frequency'         => 49.80,
-            'pf'                => 0.43,
-            'received_at'       => now()->subMinutes(12),
+            'frequency' => 49.80,
+            'pf' => 0.43,
+            'received_at' => now()->subMinutes(12),
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
@@ -168,13 +168,13 @@ class MeterHealthViewsTest extends TestCase
         ]);
 
         LatestMeterState::create([
-            'device_id'   => $meter->id,
-            'ts'          => 1776762780,
-            'voltage'     => 220.40,
-            'current'     => 0.226,
-            'power'       => 21.50,
-            'frequency'   => 49.80,
-            'pf'          => 0.43,
+            'device_id' => $meter->id,
+            'ts' => 1776762780,
+            'voltage' => 220.40,
+            'current' => 0.226,
+            'power' => 21.50,
+            'frequency' => 49.80,
+            'pf' => 0.43,
             'received_at' => now()->subSeconds(30),
         ]);
 

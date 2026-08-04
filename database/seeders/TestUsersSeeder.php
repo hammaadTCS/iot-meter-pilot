@@ -2,8 +2,8 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
 use App\Models\Device;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
@@ -90,8 +90,8 @@ class TestUsersSeeder extends Seeder
             $this->command->info('Test users created successfully:');
             $this->command->info('  SuperAdmin: superadmin@test.local / password123 (role: super_admin)');
             $this->command->info('  Admin:      admin@test.local / password123 (role: admin)');
-            $this->command->info('  User1:      user1@test.local / password123 (role: user) - has ' . $user1->devices()->count() . ' devices');
-            $this->command->info('  User2:      user2@test.local / password123 (role: user) - has ' . $user2->devices()->count() . ' devices');
+            $this->command->info('  User1:      user1@test.local / password123 (role: user) - has '.$user1->devices()->count().' devices');
+            $this->command->info('  User2:      user2@test.local / password123 (role: user) - has '.$user2->devices()->count().' devices');
         }
     }
 }

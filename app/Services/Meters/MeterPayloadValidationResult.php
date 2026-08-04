@@ -11,8 +11,7 @@ class MeterPayloadValidationResult
         public ?string $errorCode = null,
         public ?string $errorMessage = null,
         public array $errorContext = [],
-    ) {
-    }
+    ) {}
 
     public static function valid(int $ts, array $measurements): self
     {

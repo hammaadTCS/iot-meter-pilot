@@ -38,14 +38,14 @@ class NotificationBellTest extends TestCase
         $this->actingAs($user);
 
         $user->notify(new AlertDigestNotification([[
-            'device_id'   => 1,
+            'device_id' => 1,
             'device_name' => 'Main Feeder',
             'device_type' => 'meter',
-            'alert_type'  => 'telemetry_down',
-            'severity'    => 'critical',
-            'message'     => 'No telemetry for 12 minutes',
-            'transition'  => 'opened',
-            'at'          => null,
+            'alert_type' => 'telemetry_down',
+            'severity' => 'critical',
+            'message' => 'No telemetry for 12 minutes',
+            'transition' => 'opened',
+            'at' => null,
         ]], 'critical'));
 
         $this->assertSame(1, $user->unreadNotifications()->count());

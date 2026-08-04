@@ -22,10 +22,10 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->statefulApi();
         $middleware->alias([
             // Legacy role middleware — removed in FGAC Phase 7.
-            'admin'      => \App\Http\Middleware\AdminMiddleware::class,
+            'admin' => \App\Http\Middleware\AdminMiddleware::class,
             'superadmin' => \App\Http\Middleware\SuperAdminMiddleware::class,
             // Spatie hybrid access control (docs/FGAC_IMPLEMENTATION_PLAN.md).
-            'role'       => \Spatie\Permission\Middleware\RoleMiddleware::class,
+            'role' => \Spatie\Permission\Middleware\RoleMiddleware::class,
             'permission' => \Spatie\Permission\Middleware\PermissionMiddleware::class,
             'role_or_permission' => \Spatie\Permission\Middleware\RoleOrPermissionMiddleware::class,
         ]);

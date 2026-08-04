@@ -22,8 +22,8 @@ use Illuminate\Database\Seeder;
 class MigrateRolesToPermissionsSeeder extends Seeder
 {
     private const ROLE_TO_BUNDLES = [
-        'user'        => ['consumer'],
-        'admin'       => ['field_engineer', 'fleet_operator'],
+        'user' => ['consumer'],
+        'admin' => ['field_engineer', 'fleet_operator'],
         'super_admin' => ['super_admin'],
     ];
 

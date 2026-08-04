@@ -19,7 +19,7 @@ class DeviceAvailabilityTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 15:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-offline',
             'name' => 'Offline Meter',
@@ -43,7 +43,7 @@ class DeviceAvailabilityTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 15:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-silent',
             'name' => 'Silent Meter',
@@ -68,7 +68,7 @@ class DeviceAvailabilityTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 15:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-back-online',
             'name' => 'Back Online Meter',

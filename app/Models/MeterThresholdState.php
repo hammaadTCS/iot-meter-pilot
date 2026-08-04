@@ -21,7 +21,7 @@ class MeterThresholdState extends Model
 
     protected $casts = [
         'breach_streak' => 'integer',
-        'clear_streak'  => 'integer',
+        'clear_streak' => 'integer',
     ];
 
     public function device(): BelongsTo

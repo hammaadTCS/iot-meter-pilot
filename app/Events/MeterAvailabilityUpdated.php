@@ -14,8 +14,7 @@ class MeterAvailabilityUpdated implements ShouldBroadcastNow
 
     public function __construct(
         public Device $device,
-    ) {
-    }
+    ) {}
 
     /**
      * Same per-device private channel as MeterReadingUpdated — availability

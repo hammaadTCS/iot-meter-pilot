@@ -52,24 +52,24 @@ class AlertsConsoleTest extends TestCase
     private function meterFor(User $owner): Device
     {
         return Device::create([
-            'code'       => 'meter-'.fake()->unique()->slug(),
-            'name'       => 'Meter '.fake()->unique()->word(),
-            'type'       => 'meter',
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
-            'is_active'  => true,
-            'user_id'    => $owner->id,
+            'is_active' => true,
+            'user_id' => $owner->id,
         ]);
     }
 
     private function alertFor(Device $device, string $message): AlertEvent
     {
         return AlertEvent::create([
-            'device_id'    => $device->id,
-            'device_type'  => 'meter',
-            'alert_type'   => 'telemetry_down',
-            'severity'     => 'critical',
-            'status'       => 'open',
-            'message'      => $message,
+            'device_id' => $device->id,
+            'device_type' => 'meter',
+            'alert_type' => 'telemetry_down',
+            'severity' => 'critical',
+            'status' => 'open',
+            'message' => $message,
             'triggered_at' => now(),
         ]);
     }

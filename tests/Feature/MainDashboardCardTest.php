@@ -34,22 +34,22 @@ class MainDashboardCardTest extends TestCase
     public function test_meter_card_shows_voltage_power_and_monthly_units(): void
     {
         $meter = Device::create([
-            'code'       => 'meter-card',
-            'name'       => 'Card Meter',
-            'type'       => 'meter',
+            'code' => 'meter-card',
+            'name' => 'Card Meter',
+            'type' => 'meter',
             'mqtt_topic' => 'meters/card',
-            'is_active'  => true,
-            'user_id'    => $this->user->id,
+            'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
 
         LatestMeterState::create([
-            'device_id'         => $meter->id,
-            'ts'                => 1750000000,
-            'voltage'           => 230.0,
-            'current'           => 1.2,
-            'power'             => 276.0,
+            'device_id' => $meter->id,
+            'ts' => 1750000000,
+            'voltage' => 230.0,
+            'current' => 1.2,
+            'power' => 276.0,
             'monthly_units_kwh' => 2.921,
-            'received_at'       => now(),
+            'received_at' => now(),
         ]);
 
         $response = $this->get('/dashboard');
@@ -67,12 +67,12 @@ class MainDashboardCardTest extends TestCase
     public function test_non_meter_card_has_no_live_metrics(): void
     {
         Device::create([
-            'code'       => 'sensor-1',
-            'name'       => 'Hallway Sensor',
-            'type'       => 'sensor',
+            'code' => 'sensor-1',
+            'name' => 'Hallway Sensor',
+            'type' => 'sensor',
             'mqtt_topic' => 'sensors/1',
-            'is_active'  => true,
-            'user_id'    => $this->user->id,
+            'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
 
         $response = $this->get('/dashboard');

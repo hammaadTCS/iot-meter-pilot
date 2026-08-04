@@ -21,7 +21,7 @@ class MeterSectionPermissionsTest extends TestCase
     {
         return Device::factory()->create([
             'user_id' => $user->id,
-            'type'    => 'meter',
+            'type' => 'meter',
         ]);
     }
 
@@ -106,7 +106,7 @@ class MeterSectionPermissionsTest extends TestCase
             ->getContent();
 
         foreach (['<div class="kpi-grid">', 'id="chartVC"', '<tbody id="readings-body">',
-                  'Monthly Consumption', 'data-range="6h"'] as $marker) {
+            'Monthly Consumption', 'data-range="6h"'] as $marker) {
             $this->assertStringContainsString($marker, $fullHtml);
         }
     }
@@ -114,7 +114,7 @@ class MeterSectionPermissionsTest extends TestCase
     public function test_ownership_still_bounds_meter_permissions(): void
     {
         // Full consumer bundle, but someone else's meter: policy view fails.
-        $user  = User::factory()->consumer()->create();
+        $user = User::factory()->consumer()->create();
         $other = User::factory()->consumer()->create();
         $device = $this->meterOwnedBy($other);
 
@@ -132,12 +132,12 @@ class MeterSectionPermissionsTest extends TestCase
         // A crafted request trying to smuggle config changes past the form.
         $this->actingAs($user)
             ->patch(route('devices.update', $device), [
-                'name'       => 'Kitchen Meter',
-                'code'       => 'HACKED',
-                'type'       => 'sensor',
+                'name' => 'Kitchen Meter',
+                'code' => 'HACKED',
+                'type' => 'sensor',
                 'mqtt_topic' => 'evil/topic',
-                'is_active'  => false,
-                'user_id'    => $user->id + 999,
+                'is_active' => false,
+                'user_id' => $user->id + 999,
             ])
             ->assertRedirect(route('devices.manage'));
 
@@ -152,30 +152,30 @@ class MeterSectionPermissionsTest extends TestCase
     public function test_self_provision_forces_a_self_owned_meter(): void
     {
         $prosumer = User::factory()->prosumer()->create();
-        $victim   = User::factory()->consumer()->create();
+        $victim = User::factory()->consumer()->create();
 
         // Foreign user_id in the payload is ignored — ownership is forced.
         $this->actingAs($prosumer)
             ->post(route('devices.store'), [
-                'name'       => 'My Rooftop Meter',
-                'code'       => 'SELF-01',
-                'type'       => 'meter',
+                'name' => 'My Rooftop Meter',
+                'code' => 'SELF-01',
+                'type' => 'meter',
                 'mqtt_topic' => 'meters/self-01/data',
-                'user_id'    => $victim->id,
+                'user_id' => $victim->id,
             ])
             ->assertRedirect(route('devices.manage'));
 
         $this->assertDatabaseHas('devices', [
-            'code'    => 'SELF-01',
+            'code' => 'SELF-01',
             'user_id' => $prosumer->id,
         ]);
 
         // Non-meter types are rejected outright for self-provisioners.
         $this->actingAs($prosumer)
             ->post(route('devices.store'), [
-                'name'       => 'Sneaky Camera',
-                'code'       => 'SELF-02',
-                'type'       => 'camera',
+                'name' => 'Sneaky Camera',
+                'code' => 'SELF-02',
+                'type' => 'camera',
                 'mqtt_topic' => 'cams/self-02/data',
             ])
             ->assertSessionHasErrors('type');

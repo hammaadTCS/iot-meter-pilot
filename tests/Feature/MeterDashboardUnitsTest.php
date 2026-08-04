@@ -39,26 +39,26 @@ class MeterDashboardUnitsTest extends TestCase
     public function test_dashboard_shows_monthly_units_card_and_pzem_in_kwh(): void
     {
         $meter = Device::create([
-            'code'       => 'meter-units',
-            'name'       => 'Units Meter',
-            'type'       => 'meter',
+            'code' => 'meter-units',
+            'name' => 'Units Meter',
+            'type' => 'meter',
             'mqtt_topic' => 'meters/units',
-            'is_active'  => true,
-            'user_id'    => $this->user->id,
+            'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
 
         // 656581 Wh -> 656.581 kWh ; monthly units 2.921 kWh.
         LatestMeterState::create([
-            'device_id'         => $meter->id,
-            'ts'                => 1750000000,
-            'voltage'           => 230.0,
-            'current'           => 1.2,
-            'power'             => 276.0,
-            'energy_pzem_wh'    => 656581,
+            'device_id' => $meter->id,
+            'ts' => 1750000000,
+            'voltage' => 230.0,
+            'current' => 1.2,
+            'power' => 276.0,
+            'energy_pzem_wh' => 656581,
             'monthly_units_kwh' => 2.921,
-            'frequency'         => 50.0,
-            'pf'                => 0.95,
-            'received_at'       => now(),
+            'frequency' => 50.0,
+            'pf' => 0.95,
+            'received_at' => now(),
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
@@ -79,14 +79,14 @@ class MeterDashboardUnitsTest extends TestCase
         // the bootstrapped MONTHLY_DATA, so we assert the panel scaffolding plus
         // the units figures that get serialised into that payload.
         MeterMonthlyConsumption::create([
-            'device_id'    => $meter->id,
+            'device_id' => $meter->id,
             'period_start' => '2026-05-01',
-            'units_kwh'    => 98.100,
+            'units_kwh' => 98.100,
         ]);
         MeterMonthlyConsumption::create([
-            'device_id'    => $meter->id,
+            'device_id' => $meter->id,
             'period_start' => '2026-06-01',
-            'units_kwh'    => 12.500,
+            'units_kwh' => 12.500,
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
@@ -125,12 +125,12 @@ class MeterDashboardUnitsTest extends TestCase
 
         // Today's rollup row is the card's only source — no raw-readings scan.
         MeterDailyConsumption::create([
-            'device_id'          => $meter->id,
-            'period_date'        => now()->toDateString(),
+            'device_id' => $meter->id,
+            'period_date' => now()->toDateString(),
             'baseline_energy_wh' => 1000,
-            'last_energy_wh'     => 1500,
-            'rollover_wh'        => 0,
-            'units_kwh'          => 0.500,
+            'last_energy_wh' => 1500,
+            'rollover_wh' => 0,
+            'units_kwh' => 0.500,
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
@@ -161,12 +161,12 @@ class MeterDashboardUnitsTest extends TestCase
         $meter = $this->createActiveMeter('meter-tz', 'meters/tz');
 
         MeterDailyConsumption::create([
-            'device_id'          => $meter->id,
-            'period_date'        => now()->toDateString(),   // 2026-06-30, server time
+            'device_id' => $meter->id,
+            'period_date' => now()->toDateString(),   // 2026-06-30, server time
             'baseline_energy_wh' => 1000,
-            'last_energy_wh'     => 1500,
-            'rollover_wh'        => 0,
-            'units_kwh'          => 0.500,
+            'last_energy_wh' => 1500,
+            'rollover_wh' => 0,
+            'units_kwh' => 0.500,
         ]);
 
         $response = $this->get('/devices/'.$meter->id.'/dashboard');
@@ -190,12 +190,12 @@ class MeterDashboardUnitsTest extends TestCase
     private function createActiveMeter(string $code, string $topic): Device
     {
         return Device::create([
-            'code'       => $code,
-            'name'       => 'Meter '.$code,
-            'type'       => 'meter',
+            'code' => $code,
+            'name' => 'Meter '.$code,
+            'type' => 'meter',
             'mqtt_topic' => $topic,
-            'is_active'  => true,
-            'user_id'    => $this->user->id,
+            'is_active' => true,
+            'user_id' => $this->user->id,
         ]);
     }
 }

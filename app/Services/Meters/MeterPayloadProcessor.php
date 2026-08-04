@@ -453,12 +453,12 @@ class MeterPayloadProcessor
         }
 
         if (($voltage = $measurements['voltage'] ?? null) !== null) {
-            $row->voltage_sum   = (float) $row->voltage_sum + (float) $voltage;
+            $row->voltage_sum = (float) $row->voltage_sum + (float) $voltage;
             $row->voltage_count = (int) $row->voltage_count + 1;
         }
 
         if (($power = $measurements['power'] ?? null) !== null) {
-            $row->power_sum   = (float) $row->power_sum + (float) $power;
+            $row->power_sum = (float) $row->power_sum + (float) $power;
             $row->power_count = (int) $row->power_count + 1;
         }
 

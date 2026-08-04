@@ -56,9 +56,9 @@ class DispatchAlertDigests extends Command
             return false;
         }
 
-        $markIds  = $rows->pluck('id');
+        $markIds = $rows->pluck('id');
         $alertIds = $rows->pluck('alert_event_id')->unique();
-        $user     = User::find($userId);
+        $user = User::find($userId);
 
         // User removed since enqueue → just drain the buffer, nothing to send.
         if (! $user) {
@@ -70,16 +70,16 @@ class DispatchAlertDigests extends Command
         // One item per (alert, transition); skip any whose alert row has vanished.
         $items = $rows
             ->filter(fn (PendingAlertNotification $r) => $r->alertEvent !== null)
-            ->unique(fn (PendingAlertNotification $r) => $r->alert_event_id . '-' . $r->transition)
+            ->unique(fn (PendingAlertNotification $r) => $r->alert_event_id.'-'.$r->transition)
             ->map(fn (PendingAlertNotification $r) => [
-                'device_id'   => (int) $r->alertEvent->device_id,
-                'device_name' => $r->alertEvent->device?->name ?? ('Device #' . $r->alertEvent->device_id),
+                'device_id' => (int) $r->alertEvent->device_id,
+                'device_name' => $r->alertEvent->device?->name ?? ('Device #'.$r->alertEvent->device_id),
                 'device_type' => (string) $r->alertEvent->device_type,
-                'alert_type'  => (string) $r->alertEvent->alert_type,
-                'severity'    => (string) $r->alertEvent->severity,
-                'message'     => (string) $r->alertEvent->message,
-                'transition'  => (string) $r->transition,
-                'at'          => optional($r->alertEvent->triggered_at)->toDateTimeString(),
+                'alert_type' => (string) $r->alertEvent->alert_type,
+                'severity' => (string) $r->alertEvent->severity,
+                'message' => (string) $r->alertEvent->message,
+                'transition' => (string) $r->transition,
+                'at' => optional($r->alertEvent->triggered_at)->toDateTimeString(),
             ])
             ->values()
             ->all();

@@ -14,13 +14,13 @@ class DashboardController extends Controller
         $user = Auth::user();
 
         $myDevicesCount = Device::where('user_id', $user->id)->count();
-        $myActiveCount  = Device::where('user_id', $user->id)->where('is_active', true)->count();
+        $myActiveCount = Device::where('user_id', $user->id)->where('is_active', true)->count();
 
         $systemStats = null;
         if ($user->can('dashboard.view_system_stats')) {
             $systemStats = [
-                'total_users'    => User::count(),
-                'total_devices'  => Device::count(),
+                'total_users' => User::count(),
+                'total_devices' => Device::count(),
                 'online_devices' => Device::whereNotNull('last_seen_at')
                     ->where('last_seen_at', '>=', now()->subMinutes(5))
                     ->count(),

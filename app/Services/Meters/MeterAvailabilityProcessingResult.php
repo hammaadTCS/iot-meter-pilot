@@ -9,8 +9,7 @@ class MeterAvailabilityProcessingResult
     public function __construct(
         public string $status,
         public ?Device $device = null,
-    ) {
-    }
+    ) {}
 
     public static function ignoredUnknownTopic(): self
     {

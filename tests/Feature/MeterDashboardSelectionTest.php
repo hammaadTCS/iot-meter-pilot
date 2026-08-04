@@ -62,8 +62,8 @@ class MeterDashboardSelectionTest extends TestCase
     {
         $otherUser = User::factory()->consumer()->create();
         $otherMeter = $this->createMeter([
-            'code'    => 'meter-other',
-            'name'    => 'Other User Meter',
+            'code' => 'meter-other',
+            'name' => 'Other User Meter',
             'user_id' => $otherUser->id,
         ]);
 
@@ -81,12 +81,12 @@ class MeterDashboardSelectionTest extends TestCase
     private function createMeter(array $attributes = []): Device
     {
         $defaults = [
-            'code'        => 'meter-'.fake()->unique()->slug(),
-            'name'        => 'Meter '.fake()->unique()->word(),
-            'type'        => 'meter',
-            'mqtt_topic'  => 'meters/'.fake()->unique()->slug(),
-            'is_active'   => true,
-            'user_id'     => $this->user->id,
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
+            'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
+            'is_active' => true,
+            'user_id' => $this->user->id,
         ];
 
         return Device::create(array_merge($defaults, $attributes));

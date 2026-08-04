@@ -35,7 +35,7 @@ class DeviceManagementController extends Controller
         $this->authorize('create', Device::class);
 
         return view('devices-create', [
-            'users'             => $this->assignableOwners(),
+            'users' => $this->assignableOwners(),
             // Only meter.self_provision (no devices.create): type locked to
             // meter, owner locked to self — the view renders the reduced form.
             'selfProvisionOnly' => $this->selfProvisionOnly(),
@@ -57,14 +57,14 @@ class DeviceManagementController extends Controller
             : $user->id;
 
         $rules = [
-            'name'       => 'required|string|max:255',
-            'code'       => ['required', 'string', 'max:255', Rule::unique('devices', 'code')->where('user_id', $ownerId)],
-            'type'       => $this->selfProvisionOnly()
+            'name' => 'required|string|max:255',
+            'code' => ['required', 'string', 'max:255', Rule::unique('devices', 'code')->where('user_id', $ownerId)],
+            'type' => $this->selfProvisionOnly()
                 ? 'required|string|in:meter'
                 : 'required|string|in:meter,sensor,smart_plug,camera,thermostat,lock',
-            'mqtt_topic'         => 'required|string|max:255',
+            'mqtt_topic' => 'required|string|max:255',
             'availability_topic' => 'nullable|string|max:255',
-            'is_active'          => 'boolean',
+            'is_active' => 'boolean',
         ];
 
         if ($canAssignOwner) {
@@ -74,7 +74,7 @@ class DeviceManagementController extends Controller
         $validated = $request->validate($rules);
 
         $validated['is_active'] = $request->boolean('is_active', true);
-        $validated['user_id']   = $ownerId;
+        $validated['user_id'] = $ownerId;
 
         Device::create($validated);
 
@@ -87,8 +87,8 @@ class DeviceManagementController extends Controller
         $this->authorize('update', $device);
 
         return view('devices-edit', [
-            'device'   => $device,
-            'users'    => $this->assignableOwners(),
+            'device' => $device,
+            'users' => $this->assignableOwners(),
             'nameOnly' => $this->nameOnly($device),
         ]);
     }
@@ -112,12 +112,12 @@ class DeviceManagementController extends Controller
         }
 
         $rules = [
-            'name'       => 'required|string|max:255',
-            'code'       => 'required|string|max:255',
-            'type'                 => 'required|string|in:meter,sensor,smart_plug,camera,thermostat,lock',
-            'mqtt_topic'           => 'required|string|max:255',
-            'availability_topic'   => 'nullable|string|max:255',
-            'is_active'            => 'boolean',
+            'name' => 'required|string|max:255',
+            'code' => 'required|string|max:255',
+            'type' => 'required|string|in:meter,sensor,smart_plug,camera,thermostat,lock',
+            'mqtt_topic' => 'required|string|max:255',
+            'availability_topic' => 'nullable|string|max:255',
+            'is_active' => 'boolean',
         ];
 
         if ($user->can('devices.assign_owner')) {

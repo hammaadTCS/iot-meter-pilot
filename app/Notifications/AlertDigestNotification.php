@@ -31,8 +31,7 @@ class AlertDigestNotification extends Notification implements ShouldQueue
     public function __construct(
         public array $items,
         public string $highestSeverity,
-    ) {
-    }
+    ) {}
 
     /** @return list<string> */
     public function via(object $notifiable): array
@@ -42,8 +41,8 @@ class AlertDigestNotification extends Notification implements ShouldQueue
 
     public function toMail(object $notifiable): MailMessage
     {
-        $count    = count($this->items);
-        $opened   = collect($this->items)->where('transition', 'opened')->count();
+        $count = count($this->items);
+        $opened = collect($this->items)->where('transition', 'opened')->count();
         $resolved = $count - $opened;
 
         $subject = $count === 1
@@ -51,7 +50,7 @@ class AlertDigestNotification extends Notification implements ShouldQueue
             : "{$count} device alerts ({$opened} new, {$resolved} resolved)";
 
         $mail = (new MailMessage)
-            ->subject('[IoT] ' . $subject)
+            ->subject('[IoT] '.$subject)
             ->greeting($count > 1 ? 'Device alerts' : 'Device alert');
 
         // Cap the body so a mass event doesn't produce a giant email.
@@ -59,7 +58,7 @@ class AlertDigestNotification extends Notification implements ShouldQueue
             $mail->line($this->summaryLine($item));
         }
         if ($count > 20) {
-            $mail->line('…and ' . ($count - 20) . ' more.');
+            $mail->line('…and '.($count - 20).' more.');
         }
 
         return $mail->action('View alerts', url('/alerts'));
@@ -69,11 +68,11 @@ class AlertDigestNotification extends Notification implements ShouldQueue
     public function toDatabase(object $notifiable): array
     {
         return [
-            'title'            => $this->title(),
-            'count'            => count($this->items),
+            'title' => $this->title(),
+            'count' => count($this->items),
             'highest_severity' => $this->highestSeverity,
-            'items'            => $this->items,
-            'url'              => url('/alerts'),
+            'items' => $this->items,
+            'url' => url('/alerts'),
         ];
     }
 
@@ -81,8 +80,8 @@ class AlertDigestNotification extends Notification implements ShouldQueue
     public function toBroadcast(object $notifiable): BroadcastMessage
     {
         return new BroadcastMessage([
-            'title'            => $this->title(),
-            'count'            => count($this->items),
+            'title' => $this->title(),
+            'count' => count($this->items),
             'highest_severity' => $this->highestSeverity,
         ]);
     }

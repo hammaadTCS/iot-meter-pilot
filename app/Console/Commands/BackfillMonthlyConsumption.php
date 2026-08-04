@@ -101,9 +101,9 @@ class BackfillMonthlyConsumption extends Command
                 // New month: continue from the running counter, or seed the very
                 // first month at its own reading (zero consumption to start).
                 $months[$period] = [
-                    'baseline'   => $carryLast ?? $energy,
-                    'last'       => $energy,
-                    'rollover'   => 0,
+                    'baseline' => $carryLast ?? $energy,
+                    'last' => $energy,
+                    'rollover' => 0,
                     'reading_id' => (int) $reading->id,
                     'reading_at' => (string) $effectiveAt,
                 ];

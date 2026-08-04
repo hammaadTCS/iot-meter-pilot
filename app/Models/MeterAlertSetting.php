@@ -27,23 +27,23 @@ class MeterAlertSetting extends Model
     ];
 
     protected $casts = [
-        'monthly_budget_kwh'      => 'decimal:3',
+        'monthly_budget_kwh' => 'decimal:3',
         'monthly_budget_warn_pct' => 'integer',
-        'daily_budget_kwh'        => 'decimal:3',
-        'anomaly_enabled'         => 'boolean',
-        'anomaly_multiplier'      => 'decimal:2',
-        'voltage_high'            => 'decimal:2',
-        'voltage_low'             => 'decimal:2',
-        'power_max_kw'            => 'decimal:2',
-        'pf_min'                  => 'decimal:2',
-        'offline_enabled'         => 'boolean',
+        'daily_budget_kwh' => 'decimal:3',
+        'anomaly_enabled' => 'boolean',
+        'anomaly_multiplier' => 'decimal:2',
+        'voltage_high' => 'decimal:2',
+        'voltage_low' => 'decimal:2',
+        'power_max_kw' => 'decimal:2',
+        'pf_min' => 'decimal:2',
+        'offline_enabled' => 'boolean',
     ];
 
     protected $attributes = [
         'monthly_budget_warn_pct' => 80,
-        'anomaly_enabled'         => false,
-        'anomaly_multiplier'      => 2.00,
-        'offline_enabled'         => true,
+        'anomaly_enabled' => false,
+        'anomaly_multiplier' => 2.00,
+        'offline_enabled' => true,
     ];
 
     public function device(): BelongsTo

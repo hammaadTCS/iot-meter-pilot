@@ -66,19 +66,19 @@ class ScanConsumptionAlerts extends Command
             ->whereDate('period_start', now()->startOfMonth()->toDateString())
             ->value('units_kwh') ?? 0);
 
-        $pct  = $used / $budget;
+        $pct = $used / $budget;
         $warn = max(1, (int) $setting->monthly_budget_warn_pct) / 100;
 
         [$severity, $message] = match (true) {
-            $pct >= 1.0  => ['critical', sprintf('Monthly budget exceeded — %.3f of %.3f kWh (%d%%).', $used, $budget, round($pct * 100))],
+            $pct >= 1.0 => ['critical', sprintf('Monthly budget exceeded — %.3f of %.3f kWh (%d%%).', $used, $budget, round($pct * 100))],
             $pct >= $warn => ['warning', sprintf('Monthly budget %d%% used — %.3f of %.3f kWh.', round($pct * 100), $used, $budget)],
-            default       => [null, null],
+            default => [null, null],
         };
 
         $this->reconcile($setting->device, 'consumption_budget', $severity, $message, [
-            'used_kwh'   => round($used, 3),
+            'used_kwh' => round($used, 3),
             'budget_kwh' => round($budget, 3),
-            'pct'        => round($pct * 100, 1),
+            'pct' => round($pct * 100, 1),
         ]);
     }
 
@@ -95,12 +95,12 @@ class ScanConsumptionAlerts extends Command
             ->value('units_kwh') ?? 0);
 
         $severity = $used >= $budget ? 'warning' : null;
-        $message  = $severity
+        $message = $severity
             ? sprintf('Daily budget exceeded — %.3f of %.3f kWh today.', $used, $budget)
             : null;
 
         $this->reconcile($setting->device, 'consumption_daily', $severity, $message, [
-            'used_kwh'   => round($used, 3),
+            'used_kwh' => round($used, 3),
             'budget_kwh' => round($budget, 3),
         ]);
     }
@@ -146,14 +146,14 @@ class ScanConsumptionAlerts extends Command
             ->value('units_kwh') ?? 0);
 
         $severity = $used >= $multiplier * $baseline ? 'warning' : null;
-        $message  = $severity
+        $message = $severity
             ? sprintf('Unusual usage — %.3f kWh today vs ~%.3f kWh typical (%.1f×).', $used, $baseline, $used / $baseline)
             : null;
 
         $this->reconcile($setting->device, 'consumption_anomaly', $severity, $message, [
-            'used_kwh'     => round($used, 3),
+            'used_kwh' => round($used, 3),
             'baseline_kwh' => round($baseline, 3),
-            'multiplier'   => $multiplier,
+            'multiplier' => $multiplier,
         ]);
     }
 
@@ -187,13 +187,13 @@ class ScanConsumptionAlerts extends Command
         }
 
         $alert = AlertEvent::create([
-            'device_id'    => $device->id,
-            'device_type'  => $device->type,
-            'alert_type'   => $alertType,
-            'severity'     => $severity,
-            'status'       => 'open',
-            'message'      => $message,
-            'context'      => $context,
+            'device_id' => $device->id,
+            'device_type' => $device->type,
+            'alert_type' => $alertType,
+            'severity' => $severity,
+            'status' => 'open',
+            'message' => $message,
+            'context' => $context,
             'triggered_at' => now(),
         ]);
 

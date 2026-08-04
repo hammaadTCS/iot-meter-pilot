@@ -57,7 +57,7 @@ class ScanThresholdAlerts extends Command
 
         foreach ($settings as $setting) {
             $device = $setting->device;
-            $state  = $device?->latestState;
+            $state = $device?->latestState;
 
             if (! $device || ! $state) {
                 continue;
@@ -73,8 +73,8 @@ class ScanThresholdAlerts extends Command
 
             // Each check: [configured limit, current value, breached?, human message].
             $voltage = $state->voltage !== null ? (float) $state->voltage : null;
-            $powerW  = $state->power !== null ? (float) $state->power : null;
-            $pf      = $state->pf !== null ? (float) $state->pf : null;
+            $powerW = $state->power !== null ? (float) $state->power : null;
+            $pf = $state->pf !== null ? (float) $state->pf : null;
 
             $this->evaluate($setting, 'voltage_high', $voltage,
                 $setting->voltage_high !== null && $voltage !== null && $voltage > (float) $setting->voltage_high,
@@ -116,13 +116,13 @@ class ScanThresholdAlerts extends Command
         // per meter that never configured it).
         $configured = match ($checkKey) {
             'voltage_high' => $setting->voltage_high !== null,
-            'voltage_low'  => $setting->voltage_low !== null,
-            'power_max'    => $setting->power_max_kw !== null,
-            'pf_min'       => $setting->pf_min !== null,
-            default        => false,
+            'voltage_low' => $setting->voltage_low !== null,
+            'power_max' => $setting->power_max_kw !== null,
+            'pf_min' => $setting->pf_min !== null,
+            default => false,
         };
 
-        $alertType = 'threshold_' . $checkKey;
+        $alertType = 'threshold_'.$checkKey;
 
         $open = AlertEvent::query()
             ->where('device_id', $setting->device_id)
@@ -150,15 +150,15 @@ class ScanThresholdAlerts extends Command
 
         if (! $open && $state->breach_streak >= self::DEBOUNCE) {
             $alert = AlertEvent::create([
-                'device_id'    => $setting->device_id,
-                'device_type'  => $setting->device?->type ?? 'meter',
-                'alert_type'   => $alertType,
-                'severity'     => 'critical',
-                'status'       => 'open',
-                'message'      => $message(),
-                'context'      => [
-                    'check'  => $checkKey,
-                    'value'  => $value,
+                'device_id' => $setting->device_id,
+                'device_type' => $setting->device?->type ?? 'meter',
+                'alert_type' => $alertType,
+                'severity' => 'critical',
+                'status' => 'open',
+                'message' => $message(),
+                'context' => [
+                    'check' => $checkKey,
+                    'value' => $value,
                     'streak' => $state->breach_streak,
                 ],
                 'triggered_at' => now(),

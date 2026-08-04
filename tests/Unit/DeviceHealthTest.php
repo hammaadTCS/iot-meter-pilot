@@ -19,7 +19,7 @@ class DeviceHealthTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 12:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-never-seen',
             'name' => 'Never Seen Meter',
@@ -41,7 +41,7 @@ class DeviceHealthTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 12:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-health',
             'name' => 'Health Meter',
@@ -76,7 +76,7 @@ class DeviceHealthTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 12:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-disabled',
             'name' => 'Disabled Meter',
@@ -97,7 +97,7 @@ class DeviceHealthTest extends TestCase
     {
         Carbon::setTestNow('2026-04-21 12:00:00');
 
-        $device = new Device();
+        $device = new Device;
         $device->forceFill([
             'code' => 'meter-recovery',
             'name' => 'Recovery Meter',

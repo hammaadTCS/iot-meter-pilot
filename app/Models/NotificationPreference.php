@@ -28,8 +28,8 @@ class NotificationPreference extends Model
     ];
 
     protected $casts = [
-        'mail_enabled'      => 'boolean',
-        'database_enabled'  => 'boolean',
+        'mail_enabled' => 'boolean',
+        'database_enabled' => 'boolean',
         'broadcast_enabled' => 'boolean',
     ];
 
@@ -48,12 +48,12 @@ class NotificationPreference extends Model
     public static function defaultsFor(User $user): self
     {
         return new self([
-            'user_id'           => $user->id,
-            'mail_enabled'      => true,
-            'database_enabled'  => true,
+            'user_id' => $user->id,
+            'mail_enabled' => true,
+            'database_enabled' => true,
             'broadcast_enabled' => true,
-            'min_severity'      => 'warning',
-            'fleet_scope'       => 'own',
+            'min_severity' => 'warning',
+            'fleet_scope' => 'own',
         ]);
     }
 
@@ -94,9 +94,9 @@ class NotificationPreference extends Model
             return false;
         }
 
-        $now   = $at->format('H:i');
+        $now = $at->format('H:i');
         $start = Carbon::parse($this->quiet_hours_start)->format('H:i');
-        $end   = Carbon::parse($this->quiet_hours_end)->format('H:i');
+        $end = Carbon::parse($this->quiet_hours_end)->format('H:i');
 
         return $start <= $end
             ? ($now >= $start && $now < $end)        // same-day window

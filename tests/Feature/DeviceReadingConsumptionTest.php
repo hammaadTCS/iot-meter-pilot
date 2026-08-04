@@ -50,7 +50,7 @@ class DeviceReadingConsumptionTest extends TestCase
 
         $response->assertOk()
             ->assertJson([
-                'units_kwh'     => 0.5,
+                'units_kwh' => 0.5,
                 'reading_count' => 2,
             ]);
     }
@@ -91,12 +91,12 @@ class DeviceReadingConsumptionTest extends TestCase
     private function createMeter(User $owner): Device
     {
         return Device::create([
-            'code'       => 'meter-'.fake()->unique()->slug(),
-            'name'       => 'Meter '.fake()->unique()->word(),
-            'type'       => 'meter',
+            'code' => 'meter-'.fake()->unique()->slug(),
+            'name' => 'Meter '.fake()->unique()->word(),
+            'type' => 'meter',
             'mqtt_topic' => 'meters/'.fake()->unique()->slug(),
-            'is_active'  => true,
-            'user_id'    => $owner->id,
+            'is_active' => true,
+            'user_id' => $owner->id,
         ]);
     }
 }

@@ -51,8 +51,8 @@ class PruneAlertsAndNotifications extends Command
         $this->info("Pruned {$notifications} notification(s), {$pending} buffer row(s), {$alerts} resolved alert(s).");
         Log::info('Alert/notification prune complete', [
             'notifications' => $notifications,
-            'pending'       => $pending,
-            'alerts'        => $alerts,
+            'pending' => $pending,
+            'alerts' => $alerts,
         ]);
 
         return self::SUCCESS;
