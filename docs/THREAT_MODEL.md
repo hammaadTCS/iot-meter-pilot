@@ -69,6 +69,22 @@ checks.
 **Note this is bounded:** a compromised device can only lie about *itself*. Topic ACLs
 (A6) prevent it publishing as another device.
 
+### 4.1b Devices report `ts` as uptime-seconds before their clock syncs
+
+Found in live data 2026-08-04: every device has readings with `ts` values of 8, 9, 10
+alongside real epochs. The ESP8266 has no real-time clock, so before NTP syncs it
+publishes seconds-since-boot.
+
+Benign today — `shouldPromoteToLatestState` rejects them and rollups key on server time,
+so nothing is corrupted. **Latent failure:** if NTP never syncs, the device publishes low
+`ts` indefinitely; readings are stored and `last_seen_at` updates *unconditionally*, so
+health reports **ONLINE** while consumption silently stops accruing. No alert can fire,
+because every freshness signal looks healthy.
+
+**Trigger — fix now, it is 4h** (see [PENDING_WORK.md](PENDING_WORK.md) §0 item 5):
+plausibility guard on `ts`, decouple `last_seen_at` from unvalidated arrival, and a
+stalled-promotion detector. Firmware should not publish before NTP syncs.
+
 ### 4.2 One device can exhaust ingestion
 
 There is no per-device rate limit. Each message drives a transaction with three rollup
@@ -85,11 +101,17 @@ sampling that is ~167 msg/s ≈ **1,670 queries/second in one PHP process** — 
 reachable. The realistic ceiling is likely 1–3K devices, and it needs measuring rather
 than estimating.
 
-**Trigger — measure now (A19), act when ingest lag stops returning to zero overnight.**
-`received_at - ts` per device already gives the signal, read as a trend (ESP8266 has no
-RTC, so absolute values are contaminated by clock skew). The fix is architectural —
-parallel consumers partitioned by device, or a queue between MQTT and persistence — not
-a config change.
+**Measured 2026-08-04: peak ~9 messages/minute across 4 reporting devices — roughly
+1,000× below where ingestion strains.** Not a current constraint.
+
+**Trigger — act when ingest lag stops returning to zero overnight.** Note the lag signal
+must be read as a *trend*, not an absolute: `received_at - ts` is contaminated by device
+clock skew (§4.1b), and the raw numbers today are nonsense for exactly that reason. When
+it fires, take the cheap wins first — drop the redundant `exists()` before
+`updateOrCreate`, batch the ingestion-event write, move rollups out of the ingest
+transaction to a queued job (plausibly 2–4×) — before any sharding or time-series store.
+The eventual fix is architectural: parallel consumers partitioned by device, which
+requires solving dedupe first (§4.4).
 
 ### 4.4 Single consumer, no failover
 
@@ -116,6 +138,18 @@ appear only in escaped `{{ }}` with no device field interpolated into inline JS.
 
 **Trigger — re-audit escaping whenever user-controlled data reaches a new view or a
 broadcast payload,** since there is no second line of defence.
+
+### 4.5b Failures are invisible
+
+454 queue jobs failed between 2026-08-01 and 2026-08-04 and nobody knew — every one a
+`BroadcastException` (Reverb unreachable). The bell survived, so damage was limited, but
+three days of continuous failure went unseen. There is no error tracking; errors go to a
+single unrotated log file that nobody reads proactively, across five separate processes.
+
+In IoT the dangerous failure is *silence*, not a crash — no exception, just no data.
+Exception tracking cannot see it. Both layers are needed.
+
+**Trigger — before any fleet-wide operation** (the broker cutover qualifies).
 
 ### 4.6 No privilege-change audit trail
 
