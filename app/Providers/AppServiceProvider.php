@@ -3,7 +3,9 @@
 namespace App\Providers;
 
 use App\Models\Device;
+use App\Notifications\Channels\ResilientBroadcastChannel;
 use App\Policies\DevicePolicy;
+use Illuminate\Notifications\Channels\BroadcastChannel;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
@@ -24,7 +26,17 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        /*
+         * Make the notification broadcast channel non-fatal.
+         *
+         * ChannelManager::createBroadcastDriver() resolves BroadcastChannel out
+         * of the container, so binding our subclass here swaps the behaviour
+         * everywhere without any notification having to opt in — `via()` keeps
+         * returning the plain 'broadcast' string.
+         *
+         * See ResilientBroadcastChannel for the incident this prevents.
+         */
+        $this->app->bind(BroadcastChannel::class, ResilientBroadcastChannel::class);
     }
 
     /**
