@@ -12,9 +12,16 @@ return [
     | the message. All additional mailers can be configured within the
     | "mailers" array. Examples of each type of mailer are provided.
     |
+    | Defaults to the "failover" transport rather than a single mailer: it tries
+    | SMTP first and falls back to the log driver, so a provider outage degrades
+    | into a recorded message instead of an exception that fails a queued job.
+    | Set MAIL_MAILER=log explicitly for local development.
+    |
+    | Verify a real configuration end-to-end with:  php artisan mail:test you@example.com
+    |
     */
 
-    'default' => env('MAIL_MAILER', 'log'),
+    'default' => env('MAIL_MAILER', 'failover'),
 
     /*
     |--------------------------------------------------------------------------
