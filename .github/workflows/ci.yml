@@ -82,7 +82,7 @@ jobs:
       - name: Install dependencies
         run: composer install --prefer-dist --no-interaction --no-progress
 
-      # Blocking. The whole codebase was formatted in ac5f3d8 and is clean, so
+      # Blocking. The whole codebase was formatted in c47e14c and is clean, so
       # any failure here is genuinely new drift. Note the version is pinned by
       # composer.lock — a pint MINOR release can add fixers (1.27 -> 1.30 added
       # fully_qualified_strict_types and touched 14 files), so if this fails
@@ -91,7 +91,7 @@ jobs:
       - name: Check code style
         run: ./vendor/bin/pint --test
 
-      # Blocking. Clean as of d141e3c. If this fails, first try
+      # Blocking. Clean as of c38a4b9. If this fails, first try
       # `composer update` — every advisory to date was fixable inside the
       # existing constraints without a major bump.
       - name: Audit PHP dependencies

@@ -119,13 +119,13 @@ visibility is how OTA rollouts become outages.
 ## 1. FGAC — IN PROGRESS (hybrid: permissions enforced by code, bundles for admins)
 **Plan + status ledger:** `docs/FGAC_IMPLEMENTATION_PLAN.md` (v2) · **Permission matrix:** `docs/FGAC_FEATURES_PERMISSIONS.csv`
 
-Done 2026-07-10 (phases R, 0–4, commits `c812e7f`…`396258f`): repo hygiene, Redis cache
+Done 2026-07-10 (phases R, 0–4, commits `f50eb0a`…`b4b40b6`): repo hygiene, Redis cache
 (docker `iot-redis` + predis), Spatie + `Gate::before` bypass, permission catalog +
 5 bundles seeded, all legacy users migrated to bundles, self-serve registration →
 consumer bundle (`AUTH_ALLOW_REGISTRATION`), and the `/users/{user}/permissions`
 Manage Access screen.
 
-Done 2026-07-13 (`21e0b7a`, `dfab8cf`, `da16779`, `f20a55b`): Phase 5 enforcement
+Done 2026-07-13 (`54cae7e`, `3e8cd52`, `f91dea9`, `8a1bde7`): Phase 5 enforcement
 cutover (permissions gate every request, incl. the two alerting seams) and Phase 6
 view cutover (dashboard sections render per permission; `meter.charts` is a
 per-user opt-in; reporting panels are basic).
@@ -145,7 +145,7 @@ role-badge), Phase 8 (CI guardrails + doc rewrite, incl. the bundle snapshot tes
 > It also waits for A4, since both rewrite `app/Models/User.php` and doing them together
 > makes a login regression impossible to attribute.
 >
-> Phase 8's three guardrails are defined as CI steps; CI landed 2026-08-04 (`90da294`),
+> Phase 8's three guardrails are defined as CI steps; CI landed 2026-08-04 (`33a219c`),
 > so that dependency is now satisfied.
 
 ## 2. Delivery scaling ("Phase C") — pull each item only when its trigger fires

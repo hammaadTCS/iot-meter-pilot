@@ -37,14 +37,14 @@ changes. Only two authorization *predicates* in the alert pipeline are swapped
 
 | Phase | Status | Commit | Date |
 |---|---|---|---|
-| R — Repository hygiene | ✅ DONE | `c812e7f` | 2026-07-10 |
-| 0 — Redis cache + env dedupe | ✅ DONE | `559655c` | 2026-07-10 |
-| 1 — Spatie install + Gate::before | ✅ DONE | `6e1ca32` | 2026-07-10 |
-| 2 — Catalog, bundles, user migration | ✅ DONE | `6291f4a` | 2026-07-10 |
-| 3 — Registration mode (D1) | ✅ DONE | `f6aa88e` | 2026-07-10 |
-| 4 — Access management UI | ✅ DONE | `396258f` | 2026-07-10 |
-| 5 — Enforcement cutover | ✅ DONE | `21e0b7a` | 2026-07-13 |
-| 6 — View cutover | ✅ DONE | `dfab8cf` (+ `da16779`, `f20a55b`: meter.charts → per-user opt-in, reporting panels basic) | 2026-07-13 |
+| R — Repository hygiene | ✅ DONE | `f50eb0a` | 2026-07-10 |
+| 0 — Redis cache + env dedupe | ✅ DONE | `98b2e66` | 2026-07-10 |
+| 1 — Spatie install + Gate::before | ✅ DONE | `a4beb61` | 2026-07-10 |
+| 2 — Catalog, bundles, user migration | ✅ DONE | `65a8dd9` | 2026-07-10 |
+| 3 — Registration mode (D1) | ✅ DONE | `274e554` | 2026-07-10 |
+| 4 — Access management UI | ✅ DONE | `b4b40b6` | 2026-07-10 |
+| 5 — Enforcement cutover | ✅ DONE | `54cae7e` | 2026-07-13 |
+| 6 — View cutover | ✅ DONE | `3e8cd52` (+ `f91dea9`, `8a1bde7`: meter.charts → per-user opt-in, reporting panels basic) | 2026-07-13 |
 | 6b — Simplified consumer dashboard | ✅ DONE | (2026-07-14, see §3.4) | 2026-07-14 |
 | 7 — Legacy removal | pending | | |
 | 8 — Guardrails + docs | pending | | |
