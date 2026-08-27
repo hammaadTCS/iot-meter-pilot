@@ -1006,11 +1006,26 @@ runs on every push and pull request:
 
 | Job | Steps | Blocking? |
 |---|---|---|
-| `tests` | full suite on PHP **8.2** (composer.json's floor) and **8.3** (local) | yes |
+| `tests` | full suite on PHP **8.3** (composer.json's floor, and what we deploy) | yes |
+| `tests` | same suite on PHP **8.4** — forward-compat canary | **no** |
 | `quality` | `pint --test`, `composer audit`, `npm run build` | yes |
 | `quality` | `npm audit` | **no** — see the comment in the workflow |
 
-Two things to know when a run goes red:
+The `tests` job builds assets (`npm ci && npm run build`) before running the
+suite. That is not incidental: the suite renders Blade layouts calling `@vite`,
+which reads `public/build/manifest.json`, and `public/build` is gitignored. A
+tests job without a build fails 17 tests on `ViteManifestNotFoundException`.
+
+PHP 8.2 is **not** supported and is not tested. Every `spatie/laravel-permission`
+8.x release requires `php ^8.3`, and the FGAC layer is built on that package.
+`config.platform.php` in `composer.json` pins dependency resolution to 8.3 so
+`composer update` resolves identically on every machine rather than against
+whichever laptop happens to run it.
+
+Three things to know when a run goes red:
+
+- **Only the 8.3 leg gates a merge.** A red `Tests (PHP 8.4)` is a warning about
+  a future upgrade, not a broken build — it cannot fail the run.
 
 - **`pint --test` failing right after a `composer update`** usually is not your
   code. Pint's version is pinned by `composer.lock` so CI is deterministic, but a
@@ -1029,7 +1044,7 @@ Run all: `php artisan test` (or `composer test`). Config in
 [phpunit.xml](../phpunit.xml) — tests run against **in-memory SQLite**, so they
 never touch your real data and need no setup.
 
-**210 tests, 0 skipped** as of 2026-08-04, run in CI on every push (§10).
+**229 tests, 0 skipped** as of 2026-08-27, run in CI on every push (§10).
 
 - [tests/Feature/](../tests/Feature/) — ~42 files exercising whole flows through
   HTTP or command invocation. The names are a map of the system's guarantees:

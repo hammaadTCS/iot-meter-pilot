@@ -149,21 +149,43 @@ jobs:
       - name: Build assets
         run: npm run build
 
-      # NON-BLOCKING, deliberately — revisit and make this blocking once the
-      # finding below is resolved.
+      # NON-BLOCKING, deliberately. Reviewed 2026-08-27 against the then-current
+      # finding: 11 advisories (2 critical, 7 high, 1 moderate, 1 low). Chain by
+      # chain, because "audit is noisy" is not a reason and the previous version
+      # of this comment covered only one of these:
       #
-      # Known: laravel-echo -> socket.io-client -> engine.io-client -> ws pulls
-      # in `ws` advisories. This project drives Reverb over the PUSHER protocol
-      # (pusher-js), not socket.io, so that path is never imported; and `ws` is
-      # a Node WebSocket library that browsers never receive, since
-      # engine.io-client uses the native WebSocket in a bundle. So it does not
-      # reach production.
+      #   shell-quote <- concurrently (CRITICAL) — concurrently is invoked only
+      #     by `composer dev` (composer.json), a local process launcher. It is
+      #     not in the build and never runs in CI or production.
+      #   vite, esbuild (HIGH, LOW) — both advisories are dev-server AND
+      #     Windows-specific (server.fs.deny bypass via Windows alternate paths;
+      #     launch-editor NTLMv2 disclosure over UNC; esbuild dev-server file
+      #     read on Windows). Production serves pre-built static assets; the
+      #     dev server is never exposed.
+      #   postcss -> nanoid (HIGH) — build-time only. The advisories read
+      #     arbitrary .map files during a build via sourceMappingURL.
+      #   ws <- engine.io-client <- laravel-echo, socket.io-parser (HIGH) — we
+      #     drive Reverb over the PUSHER protocol (pusher-js), so the socket.io
+      #     transport is never imported into the bundle, and `ws` is a Node
+      #     library a browser never receives.
+      #   form-data <- axios (HIGH) — CRLF injection in multipart field names.
+      #     axios pulls it for its NODE adapter, which a browser bundle
+      #     does not use.
       #
-      # Note `npm audit --omit=dev` reports zero here, but that is misleading
-      # rather than reassuring: package.json declares NO `dependencies` block at
-      # all, so genuinely shipped libraries (alpinejs, axios, laravel-echo,
-      # pusher-js) sit in devDependencies and --omit=dev would hide real issues
-      # in them. The full audit is the honest one to run.
+      #   axios (HIGH, 10 advisories) — THIS ONE GENUINELY SHIPS. It is set on
+      #     `window.axios` in resources/js/bootstrap.js and goes to every
+      #     browser. Most of the ten are Node-adapter or proxy-specific and
+      #     unreachable client-side, but the prototype-pollution entries are not
+      #     obviously so.
+      #
+      # So this step is non-blocking because ONE chain needs a real fix, not
+      # because all of them are dismissible. Condition to make it blocking:
+      # resolve the axios chain, then split package.json into `dependencies`
+      # (alpinejs, axios, laravel-echo, pusher-js — these ship) and
+      # `devDependencies` (build tooling). Until that split exists,
+      # `npm audit --omit=dev` reports a misleading zero, because everything
+      # shipped is currently declared as a devDependency. Tracked in
+      # docs/PENDING_WORK.md §0.
       - name: Audit npm dependencies (reported, not enforced)
         run: npm audit --audit-level=high
         continue-on-error: true
