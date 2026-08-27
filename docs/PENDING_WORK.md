@@ -150,6 +150,7 @@ role-badge), Phase 8 (CI guardrails + doc rewrite, incl. the bundle snapshot tes
 > but **failed on every run from that day until 2026-08-27**, so the dependency was not
 > actually satisfied — the guardrails would have been added to a suite that could not
 > pass. Repaired in `efc8ab3`; the gate is green now and the dependency genuinely holds.
+> Full account: [CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md).
 
 ## 2. Delivery scaling ("Phase C") — pull each item only when its trigger fires
 No new alert types here; purely how alerts get out. All additive.
