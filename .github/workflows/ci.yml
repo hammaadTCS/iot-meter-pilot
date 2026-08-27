@@ -22,16 +22,33 @@ jobs:
     name: Tests (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
 
+    # Only the 8.3 leg gates a merge. The 8.4 leg reports forward-compatibility
+    # breakage without ever turning the board red — the same treatment the npm
+    # audit step gets in `quality`, and for the same reason: a warning nobody
+    # can act on today should not block work that is ready.
+    continue-on-error: ${{ matrix.experimental }}
+
     strategy:
       # Report every failing version rather than stopping at the first.
       fail-fast: false
       matrix:
-        # 8.2 is the floor declared in composer.json; 8.3 is what runs locally.
-        # Testing both catches accidental use of 8.3-only syntax.
-        php: ['8.2', '8.3']
+        include:
+          # 8.3 is the floor declared in composer.json, and what runs both
+          # locally and in production. This is not a preference: every
+          # spatie/laravel-permission 8.x release requires php ^8.3, and the
+          # entire FGAC layer is built on that package. 8.2 was removed here
+          # because it could not even install — the lock had excluded it.
+          - php: '8.3'
+            experimental: false
+          # Forward-compat canary. config.platform.php pins resolution to 8.3,
+          # so this installs the exact same locked dependency set and runs it
+          # on 8.4 — which is the question worth answering before any future
+          # 8.4 upgrade, rather than during one.
+          - php: '8.4'
+            experimental: true
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -45,7 +62,7 @@ jobs:
           coverage: none
 
       - name: Cache Composer packages
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.composer/cache/files
           key: composer-${{ matrix.php }}-${{ hashFiles('composer.lock') }}
@@ -62,6 +79,29 @@ jobs:
           cp .env.example .env
           php artisan key:generate
 
+      # Required, not optional. The suite renders Blade layouts that call
+      # @vite, which reads public/build/manifest.json at render time.
+      # public/build is gitignored (.gitignore:16), so without a build here 17
+      # tests die on ViteManifestNotFoundException before asserting anything.
+      # This passes on a developer machine only because the working tree
+      # already has a built public/build lying around.
+      #
+      # $this->withoutVite() in tests/TestCase.php would be cheaper, but it
+      # would hollow out `csp allows the assets the dashboards actually load`
+      # in SecurityHeadersTest — a test that exists because a CSP change broke
+      # the dashboard for real. Building is the honest option, and it catches
+      # asset breakage in the same job that would surface it.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Build assets
+        run: npm run build
+
       - name: Run tests
         run: php artisan test
 
@@ -70,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up PHP
         uses: shivammathur/setup-php@v2
@@ -97,7 +137,7 @@ jobs:
       - name: Audit PHP dependencies
         run: composer audit --no-interaction
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
