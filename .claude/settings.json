@@ -1,4 +1,8 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
   "permissions": {
     "allow": [
       "Bash(grep -E \"\\\\.lock$|\\\\.log$|\\\\.env\")",
@@ -64,7 +68,54 @@
       "Bash(git --no-pager diff -w app/Models/User.php app/Services/Meters/MeterPayloadValidationResult.php database/seeders/DatabaseSeeder.php app/Models/PendingAlertNotification.php)",
       "Bash(php -r 'require '\\\\''vendor/autoload.php'\\\\''; $r=new ReflectionClass\\(App\\\\Models\\\\User::class\\); echo '\\\\''class loads OK; traits: '\\\\''.implode\\('\\\\'', '\\\\'', $r->getTraitNames\\(\\)\\).PHP_EOL;')",
       "Bash(git commit *)",
-      "Bash(git --no-pager log --oneline -3)"
+      "Bash(git --no-pager log --oneline -3)",
+      "Bash(git config *)",
+      "Bash(git commit -q -m 'chore: ignore the Pint formatting commit in git blame *)",
+      "Bash(git --no-pager blame -L 16,16 --date=short app/Models/User.php)",
+      "Bash(grep -nE '= *['\\\\''`].*\\\\{\\\\{ *\\\\$device' resources/views/devices/dashboards/*.blade.php)",
+      "Bash(php -r ' *)",
+      "Bash(git --no-pager log --oneline -1)",
+      "Bash(git --no-pager log --oneline -5)",
+      "Bash(php -v)",
+      "Bash(composer audit *)",
+      "Bash(npm audit *)",
+      "Bash(composer outdated *)",
+      "Bash(rm -rf /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/audittest)",
+      "Bash(mkdir -p /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/audittest)",
+      "Bash(cp /home/hammaad/iot-meter-pilot/composer.json /home/hammaad/iot-meter-pilot/composer.lock /tmp/claude-1000/-home-hammaad-iot-meter-pilot/33bff2f6-8c01-4448-afcd-97a5f5214aa3/scratchpad/audittest/)",
+      "Bash(composer update *)",
+      "Bash(npm ls *)",
+      "Bash(git --no-pager log --oneline -6)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" docs/PROJECT_HANDBOOK.md)",
+      "Bash(grep -onE '\\\\[[^]]{1,60}\\\\]\\\\\\([^\\)]*#L[0-9]+[^\\)]*\\\\\\)' docs/PROJECT_HANDBOOK.md)",
+      "Bash(./vendor/bin/pint tests/Feature/DocumentationLinksTest.php)",
+      "Bash(php -l config/mail.php)",
+      "Bash(composer --version)",
+      "Bash(npm -v)",
+      "Bash(composer validate *)",
+      "Bash(npm ci *)",
+      "Bash(echo \"=== build exit: $? ===\")",
+      "Bash(composer install *)",
+      "Bash(composer show *)",
+      "Bash(composer config *)",
+      "Bash(php -r '$j=json_decode\\(file_get_contents\\(\"composer.json\"\\),true\\); $j[\"require\"][\"spatie/laravel-permission\"]=\"^8.0\"; file_put_contents\\(\"composer.json\", json_encode\\($j, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES\\)\\);')",
+      "Bash(git ls-tree *)",
+      "Bash(awk -F: '{s+=$3} END {print \"approx tests before:\", s}')",
+      "Bash(awk '/files changed/ {f+=$1; i+=$4; d+=$6} END {printf \"files touched: %d\\\\ninsertions: %d\\\\ndeletions: %d\\\\n\", f, i, d}')",
+      "Bash(fc-list : family)",
+      "Bash(grep -iE \"^\\(dejavu|liberation|noto sans$|noto serif$|georgia|times|arial|helvetica|courier|jetbrains|fira|source|ubuntu|cantarell|carlito|caladea\\)\")",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --no-pdf-header-footer --print-to-pdf-no-header --print-to-pdf=/home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf --virtual-time-budget=6000 file://__TRACKED_VAR__/weekly-report-print.html)",
+      "Bash(pdfinfo Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf)",
+      "Bash(command -v pdftoppm)",
+      "Bash(pdftoppm -png -r 90 Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf /tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad/pg)",
+      "Bash(rm -f pg-*.png)",
+      "Bash(google-chrome --headless --disable-gpu --no-sandbox --no-pdf-header-footer --print-to-pdf=/home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf --virtual-time-budget=6000 file://__TRACKED_VAR__/weekly-report-print.html)",
+      "Bash(pdfinfo /home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf)",
+      "Bash(pdftoppm -png -r 90 /home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf pg)",
+      "Bash(cd /tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad *)"
+    ],
+    "additionalDirectories": [
+      "/tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad"
     ]
   }
 }
