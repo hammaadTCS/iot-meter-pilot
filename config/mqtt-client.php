@@ -39,9 +39,12 @@ return [
             'enable_logging' => env('MQTT_ENABLE_LOGGING', true),
 
             'connection_settings' => [
+                // A blank `MQTT_USERNAME=` in .env resolves to an empty string, not null,
+                // and the client rejects an empty-string credential. Coerce blanks to null
+                // so an anonymous broker connects.
                 'auth' => [
-                    'username' => env('MQTT_USERNAME'),
-                    'password' => env('MQTT_PASSWORD'),
+                    'username' => env('MQTT_USERNAME') ?: null,
+                    'password' => env('MQTT_PASSWORD') ?: null,
                 ],
                 'connect_timeout' => (int) env('MQTT_CONNECTION_TIMEOUT', 60),
                 'socket_timeout' => (int) env('MQTT_SOCKET_TIMEOUT', 5),

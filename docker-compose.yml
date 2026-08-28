@@ -1,0 +1,113 @@
+# Local development services for iot-meter-pilot.
+#
+# SCOPE — read this before adding anything here.
+# This file declares only the services this project actually consumes. It is NOT a
+# full stack: three things the app depends on deliberately live outside Docker.
+#
+#   * MariaDB      native on 127.0.0.1:3306, database `iot_meter_pilot`.
+#                  Not containerised: it holds the real dataset and its lifecycle
+#                  should not be tied to `docker compose down`.
+#   * MQTT broker  remote, attendance.thecloudserv.com:8883. The meters publish
+#                  there; there is deliberately no local broker (see NOTE below).
+#   * The app      `composer dev` (serve/queue/vite) plus the MQTT consumer, which
+#                  runs as a systemd user unit: `systemctl --user status
+#                  iot-meter-consumer`.
+#
+# NOTE ON LOCAL BROKERS — do not "helpfully" add mosquitto or EMQX back here.
+# On 2026-08-28 a wiped `.env` fell back to `env('MQTT_HOST', '127.0.0.1')`. A local
+# mosquitto was running with anonymous access, so it ACCEPTED the connection and
+# delivered nothing. The app reported a healthy broker for six hours while ingesting
+# zero telemetry. With no local broker listening, that same mistake fails instantly
+# with "Connection refused". The absence of a broker here is a safety feature.
+
+services:
+
+  # ---------------------------------------------------------------------------
+  # Redis — cache backend (CACHE_STORE=redis)
+  # ---------------------------------------------------------------------------
+  # Cache ONLY. Sessions and queues both use the database driver
+  # (SESSION_DRIVER=database, QUEUE_CONNECTION=database), so losing this
+  # container's contents costs nothing but a rebuildable cache.
+  #
+  # Previously this ran as a hand-started `docker run` container with no definition
+  # anywhere on disk and an anonymous volume — if it had ever been removed, nothing
+  # could have recreated it. It is declared here so it is reproducible.
+  redis:
+    image: redis:7-alpine
+    container_name: iot-redis
+    restart: unless-stopped
+
+    # appendonly gives a durable log so a restart does not start from a cold cache.
+    # Not strictly required for a pure cache, but it makes restarts cheap.
+    command: ["redis-server", "--appendonly", "yes"]
+
+    # Bound to 127.0.0.1, NOT 0.0.0.0. Redis has no password here
+    # (.env has REDIS_PASSWORD=null), so it must never be reachable off-host.
+    ports:
+      - "127.0.0.1:6379:6379"
+
+    # Named volume, not anonymous: survives `docker compose down` and is
+    # identifiable in `docker volume ls`.
+    volumes:
+      - redis_data:/data
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # phpMyAdmin — browse the native MariaDB (database `iot_meter_pilot`)
+  # ---------------------------------------------------------------------------
+  # Connects over the MariaDB UNIX SOCKET rather than TCP. This matters:
+  #
+  # MariaDB is bound to `bind-address = 127.0.0.1`, which is correct — the database
+  # should not be reachable from the network. A container on the bridge network
+  # cannot reach the host's 127.0.0.1, which left three options:
+  #
+  #   1. network_mode: host      — rejected, host port 80 is already in use
+  #   2. widen bind-address      — rejected, exposes MariaDB to every container
+  #   3. mount the unix socket   — chosen
+  #
+  # Option 3 keeps the database off the network entirely while still letting this
+  # container reach it. /run/mysqld/mysqld.sock is srwxrwxrwx and /run/mysqld is
+  # world-traversable, so no permission changes are needed.
+  #
+  # HISTORY: the phpMyAdmin that used to serve this port belonged to the retired
+  # `iot-mvp` project and pointed at ITS MySQL container, so it only ever showed the
+  # `iot_app` database and never `iot_meter_pilot`. That is why the real tables were
+  # not findable there.
+  phpmyadmin:
+    image: phpmyadmin:latest
+    container_name: iot-phpmyadmin
+    restart: unless-stopped
+
+    environment:
+      # Socket path AS SEEN INSIDE the container (same path, bind-mounted below).
+      PMA_SOCKET: /run/mysqld/mysqld.sock
+
+      # No PMA_USER / PMA_PASSWORD on purpose. This file is committed to git, and
+      # database credentials do not belong in version control. phpMyAdmin shows its
+      # login form instead — use the DB_USERNAME / DB_PASSWORD values from .env.
+      PMA_ARBITRARY: "0"
+
+      # Import/export headroom for a table with >117k reading rows.
+      UPLOAD_LIMIT: 256M
+
+    # Mount the DIRECTORY, not the socket file. MariaDB deletes and recreates the
+    # socket inode on restart; a bind mount of the file itself would survive as a
+    # stale inode and silently stop working. Mounting the directory follows it.
+    volumes:
+      - /run/mysqld:/run/mysqld
+
+    # 8081, because 8080 is reserved for the Reverb websocket server
+    # (REVERB_SERVER_PORT in .env). Bound to 127.0.0.1 — this is an admin tool with
+    # a login form and must not be exposed beyond this machine.
+    ports:
+      - "127.0.0.1:8081:80"
+
+volumes:
+  redis_data:
+    name: iot-meter-pilot_redis_data
