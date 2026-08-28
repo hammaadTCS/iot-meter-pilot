@@ -46,6 +46,7 @@
 12. [Recipes — "I want to change X, where do I go?"](#12-recipes)
 13. [Glossary](#13-glossary)
 14. [Change log — commercial hardening sprint](#14-change-log--commercial-hardening-sprint)
+    - Dated deep-dive: [CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md) — repairing the CI gate
 
 ---
 
@@ -1006,11 +1007,26 @@ runs on every push and pull request:
 
 | Job | Steps | Blocking? |
 |---|---|---|
-| `tests` | full suite on PHP **8.2** (composer.json's floor) and **8.3** (local) | yes |
+| `tests` | full suite on PHP **8.3** (composer.json's floor, and what we deploy) | yes |
+| `tests` | same suite on PHP **8.4** — forward-compat canary | **no** |
 | `quality` | `pint --test`, `composer audit`, `npm run build` | yes |
 | `quality` | `npm audit` | **no** — see the comment in the workflow |
 
-Two things to know when a run goes red:
+The `tests` job builds assets (`npm ci && npm run build`) before running the
+suite. That is not incidental: the suite renders Blade layouts calling `@vite`,
+which reads `public/build/manifest.json`, and `public/build` is gitignored. A
+tests job without a build fails 17 tests on `ViteManifestNotFoundException`.
+
+PHP 8.2 is **not** supported and is not tested. Every `spatie/laravel-permission`
+8.x release requires `php ^8.3`, and the FGAC layer is built on that package.
+`config.platform.php` in `composer.json` pins dependency resolution to 8.3 so
+`composer update` resolves identically on every machine rather than against
+whichever laptop happens to run it.
+
+Three things to know when a run goes red:
+
+- **Only the 8.3 leg gates a merge.** A red `Tests (PHP 8.4)` is a warning about
+  a future upgrade, not a broken build — it cannot fail the run.
 
 - **`pint --test` failing right after a `composer update`** usually is not your
   code. Pint's version is pinned by `composer.lock` so CI is deterministic, but a
@@ -1029,7 +1045,11 @@ Run all: `php artisan test` (or `composer test`). Config in
 [phpunit.xml](../phpunit.xml) — tests run against **in-memory SQLite**, so they
 never touch your real data and need no setup.
 
-**210 tests, 0 skipped** as of 2026-08-04, run in CI on every push (§10).
+**230 tests, 0 skipped** as of 2026-08-27, run in CI on every push (§10).
+
+Note the count moves when `docs/` does: `DocumentationLinksTest` is data-provider
+driven over `docs/*.md`, so **adding a document adds a test**. That is intended —
+a new doc is checked for broken links the moment it exists.
 
 - [tests/Feature/](../tests/Feature/) — ~42 files exercising whole flows through
   HTTP or command invocation. The names are a map of the system's guarantees:
@@ -1129,7 +1149,7 @@ shipped. Items are numbered as in that plan (A1, A3, …) so commit messages,
 | **A1** | `CONFIG = @json($config)` in both dashboards; `SERVER_TODAY`/`SERVER_MONTH` replace browser-clock date derivation in `fetchTodayUnits()` and `CURRENT_PERIOD_START` | Rollups are keyed to the platform timezone, so any viewer whose local date differed matched no row and the poll overwrote a correct value with `0`. §8.5 |
 | **A9** | `SESSION_SECURE_COOKIE` defaults from `APP_ENV`; `URL::forceScheme('https')` in production; new `SecurityHeaders` middleware (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) | The setting was absent from both env files *and* had no config default, so it resolved to `null` and production cookies were never `Secure`. §9 |
 | **A5** | [DEVICE_CLAIMING.md](DEVICE_CLAIMING.md) design; plus its §8 interim fix — cross-column topic uniqueness in both web forms and a unique index on `availability_topic` | Customers bound meters by typing an MQTT topic. Squatting an unregistered topic captured a future meter's readings, and `availability_topic` had no uniqueness at all. §8.2 |
-| **A13** | [.github/workflows/ci.yml](../.github/workflows/ci.yml) — suite on PHP 8.2 + 8.3, `pint --test`, `composer audit`, asset build | First automated gate on the repo. §10 |
+| **A13** | [.github/workflows/ci.yml](../.github/workflows/ci.yml) — suite on PHP 8.2 + 8.3, `pint --test`, `composer audit`, asset build | First automated gate on the repo. §10. **It did not actually work — every run failed until 2026-08-27; see the entry below.** |
 | — | One-time `pint` pass (73 files) + `.git-blame-ignore-revs` | `pint --test` failed on 72 files at HEAD; CI would have been red on day one. There was no house style to codify instead — configuring Pint to align `=>` flagged *more* files (93) than the default preset (73), because the codebase aligned inconsistently. |
 | — | `composer update` inside existing constraints | `composer audit` reported 28 advisories (4 high). All cleared without a single major bump or constraint change. **`php-mqtt/laravel-client` 1.7→1.8 and `reverb` 1.8→1.11 sit under ingestion and broadcast — restart both after deploying and confirm a fresh `meter_readings` row lands.** |
 | — | Un-skipped three cross-tenant tests in `AuthenticationTest` | They had **never executed**. §11 |
@@ -1140,12 +1160,51 @@ dead-ends every signup on the verify screen. Consequences and the pick-up
 procedure are in [PENDING_WORK.md §4a](PENDING_WORK.md); the deadline is **before
 FGAC Phase 7**, because both rewrite `User.php`.
 
+> **Update 2026-08-05:** A8 shipped (`2a82216`) — failover mail transport plus a
+> `mail:test` command. **A4 has not**; `MustVerifyEmail` is still commented out.
+> The pair is now half-done, and the Phase 7 deadline still stands.
+
 **Deferred with a trigger:** monthly RANGE partitioning of `meter_readings`
 (A11b). The suite runs on SQLite, which has no partitioning, so a driver-guarded
 migration would put a schema shape into production that CI never exercises.
 Revisit when the prune job exceeds ~2 minutes or the table passes ~50 M rows.
 
-### Week 2 — not started
+### 2026-08-05 — operations items pulled forward
+
+Measuring the live system on 2026-08-04 reordered the plan: recoverability and
+observability before broker security. Reasoning in [PENDING_WORK.md](PENDING_WORK.md) §0.
+
+| Item | What changed | Why it mattered |
+|---|---|---|
+| — | Failover mail transport + a `mail:test` command (`2a82216`) | Clears half of the A8/A4 pair. **A4 email verification is still open** — `MustVerifyEmail` remains commented out in [User.php](../app/Models/User.php). |
+| — | Broadcast leg made non-fatal in alert delivery (`3e9d5d4`) | 454 queue jobs had been failing since 2026-08-01 with `BroadcastException` and nobody knew. Live push is cosmetic; it must never fail alert *delivery*. |
+
+### 2026-08-27 — the CI gate repaired
+
+**Full detail: [CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md).**
+
+CI landed 2026-08-04 and **failed on every run for the next 23 days.** Three
+independent causes, none of them an application defect.
+
+| Item | What changed | Why it mattered |
+|---|---|---|
+| — | PHP floor 8.2 → 8.3, plus `config.platform.php` (`efc8ab3`) | The lock pinned `spatie/laravel-permission` 8.3.0 (`php ^8.3`) while composer.json declared `^8.2`, so the 8.2 leg could not install. Not re-lockable — every 8.x release needs 8.3, and FGAC is built on it. The **platform pin** is the durable half: without it `composer update` resolves against whichever machine runs it, which is how the mismatch was created. Re-lock moved zero package versions. |
+| — | `tests` job now builds assets before running the suite | 17 tests died on `ViteManifestNotFoundException`. `public/build` is gitignored and only `quality` built it; the suite passed locally only because a dev tree has a stale build lying around. `withoutVite()` was rejected — it would have hollowed out the CSP assertion in [SecurityHeadersTest.php](../tests/Feature/SecurityHeadersTest.php). |
+| — | Matrix: 8.3 blocking, **8.4 non-blocking** (`continue-on-error`) | Dropping 8.2 left a decorative one-entry matrix, but only 8.3 exists locally — a blocking 8.4 leg risked a *fresh* red board on the change meant to make it green. Non-blocking gives the forward-compat signal at no risk to the gate. |
+| — | `checkout@v7`, `cache@v6`, `setup-node@v7` | Node 20 deprecation warnings on every run. Each verified to declare `node24` and to still accept every input this workflow passes. |
+| — | `npm audit` justification rewritten; `@tailwindcss/vite` removed (`d91d9a3`) | The comment explained away one chain while the finding had grown to 11 advisories across eight. Tracing it properly found that only **axios** genuinely ships to browsers. `@tailwindcss/vite` was declared but imported nowhere — the build runs Tailwind **v3** via [postcss.config.js](../postcss.config.js) — dragging in a second major and inviting a v3/v4 collision. |
+
+**Verification:** the change was applied to a throwaway clone and both jobs run
+end to end *before* being proposed. That caught two defects in the proposal
+itself. Final state from a clean tree: **229 tests passing**, `pint --test` 0,
+`composer audit` 0, `composer validate --strict` 0.
+
+**Also corrected:** this handbook claimed "210 tests … run in CI on every push"
+and listed a blocking PHP 8.2 leg; `PENDING_WORK.md` claimed Phase 8's CI
+dependency was satisfied. None of that was true. A stale assertion is worse than
+a missing one, because it gets trusted.
+
+### Week 2 — remaining
 
 Broker security and data safety: **A7** TLS on MQTT (config has no `tls` block
 at all despite `MQTT_PORT=8883` — step 0 is a packet capture to find out what
@@ -1155,6 +1214,12 @@ that port actually serves), **A6** per-device broker credentials + topic ACLs,
 
 Week 2 is the first work needing infrastructure access and a coordinated OTA
 window rather than only code.
+
+**The order changed on 2026-08-04** — backups and observability now come before
+the broker cutover, because the fleet is five known households while all
+customer data has zero recovery capability. The current queue is
+[PENDING_WORK.md](PENDING_WORK.md) §0, which supersedes the ordering implied
+here; **A10 backups is next.**
 
 ### Known-unfixed, accepted for the pilot
 
@@ -1183,4 +1248,6 @@ window rather than only code.
 [erd.md](erd.md) (schema diagram), [use-case.md](use-case.md) (product
 scenarios), [THREAT_MODEL.md](THREAT_MODEL.md) (what we protect, from whom, and
 what is deliberately accepted), [DEVICE_CLAIMING.md](DEVICE_CLAIMING.md) (how
-devices will bind to accounts), [PENDING_WORK.md](PENDING_WORK.md) (what's next).
+devices will bind to accounts), [PENDING_WORK.md](PENDING_WORK.md) (what's next),
+[CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md) (why CI was red for 23 days
+and what the repair changed).

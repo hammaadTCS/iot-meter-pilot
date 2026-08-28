@@ -33,8 +33,9 @@ reordered. Full reasoning in `THREAT_MODEL.md`.
 
 | # | Item | Effort | Why it sits here |
 |---|---|---|---|
-| 1 | **Mail transport** — free tier SMTP (Brevo/Resend, ~300/day covers a 5-device pilot) + switch `config/mail.php` default to the `failover` mailer. Then **A4** email verification. | 20 min + 4 h | Unblocks the skipped pair in §4a at zero cost. No procurement needed. |
-| 2 | **Triage the 454 failed jobs, and make the broadcast leg non-fatal** — live push is cosmetic and must never fail alert delivery. Catch broadcast exceptions in `AlertDigestNotification`, or split it into its own single-try job. Then `queue:flush`. | 2 h | Live bug; the noise also hides real failures. |
+| 1 | **Mail transport** — ~~free tier SMTP + switch `config/mail.php` default to the `failover` mailer~~ **DONE** `2a82216` (plus a `mail:test` command to verify end to end). **A4** email verification is **still open** — `MustVerifyEmail` remains commented out in `app/Models/User.php`. | 20 min + 4 h | Unblocks the skipped pair in §4a at zero cost. No procurement needed. |
+| 2 | ~~**Triage the 454 failed jobs, and make the broadcast leg non-fatal**~~ — **DONE** `3e9d5d4`. Live push is cosmetic and must never fail alert delivery. | 2 h | Live bug; the noise also hides real failures. |
+| 2b | **npm advisories + split `package.json`** — 11 advisories (2 critical, 7 high) as of 2026-08-27. Only one chain genuinely ships: **axios**, set on `window.axios` in `resources/js/bootstrap.js`. The rest are dev-server, build-time, or a socket.io transport we never import — chain-by-chain reasoning is in the comment on the `npm audit` step in `ci.yml`. Fix axios, then **split `package.json` into `dependencies` (alpinejs, axios, laravel-echo, pusher-js) and `devDependencies` (build tooling)**; there is no `dependencies` block at all today, which is why `--omit=dev` reports a misleading zero. Then make the `npm audit` step blocking. | 3 h | Small, and it converts CI's last non-blocking step into a real gate. |
 | 3 | **A10 backups** — `spatie/laravel-backup` → S3-compatible (Cloudflare R2: zero egress, which matters because a restore drill pulls the whole archive), **encrypted** (`cnic`/`phone`/`address` are leaving the building), plus an automated monthly restore-and-diff. **Tier it:** business data (users, devices, rollups, alerts, permissions) daily and long-retained; `meter_readings` weekly and short-retained — the rollups are the product, raw readings are the audit trail. | 1 d | Highest business risk, zero external dependency. **Also unblocks FGAC Phase 7**, whose rollback plan cites a backup that does not exist. |
 | 4 | **A12 observability, in two layers.** (a) Sentry across all five processes, verified with a test exception from each; `LOG_STACK` `single` → `daily`. (b) **Silence detection** — Sentry cannot see "nothing happened", which is the characteristic IoT failure: fleet-wide reading freshness, `failed_jobs` growth, and per-device stalled promotion. Plus an **external** uptime monitor on `/up`, because everything else runs inside the box and cannot report its own death. | 5 h | The 454-job blind spot is the argument. Needed before any fleet-wide operation. |
 | 5 | **Device-time trust guards** (new — see below) | 4 h | Closes a live silent-failure mode. |
@@ -145,8 +146,11 @@ role-badge), Phase 8 (CI guardrails + doc rewrite, incl. the bundle snapshot tes
 > It also waits for A4, since both rewrite `app/Models/User.php` and doing them together
 > makes a login regression impossible to attribute.
 >
-> Phase 8's three guardrails are defined as CI steps; CI landed 2026-08-04 (`33a219c`),
-> so that dependency is now satisfied.
+> Phase 8's three guardrails are defined as CI steps. CI landed 2026-08-04 (`33a219c`)
+> but **failed on every run from that day until 2026-08-27**, so the dependency was not
+> actually satisfied — the guardrails would have been added to a suite that could not
+> pass. Repaired in `efc8ab3`; the gate is green now and the dependency genuinely holds.
+> Full account: [CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md).
 
 ## 2. Delivery scaling ("Phase C") — pull each item only when its trigger fires
 No new alert types here; purely how alerts get out. All additive.
