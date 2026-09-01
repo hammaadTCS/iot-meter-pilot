@@ -112,7 +112,19 @@
       "Bash(google-chrome --headless --disable-gpu --no-sandbox --no-pdf-header-footer --print-to-pdf=/home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf --virtual-time-budget=6000 file://__TRACKED_VAR__/weekly-report-print.html)",
       "Bash(pdfinfo /home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf)",
       "Bash(pdftoppm -png -r 90 /home/hammaad/iot-meter-pilot/Weekly_Report_IoT_Webapp_03-07_Aug_2026.pdf pg)",
-      "Bash(cd /tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad *)"
+      "Bash(cd /tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad *)",
+      "Bash(journalctl --disk-usage)",
+      "Bash(journalctl --user -u iot-meter-consumer --disk-usage)",
+      "Bash(grep -oE '\\\\] local\\\\.[A-Z]+: [^{]{0,55}' storage/logs/laravel-2026-09-01.log)",
+      "Bash(grep -oE '\\\\] local\\\\.[A-Z]+: [^{]{0,50}')",
+      "Bash(systemctl --user show iot-meter-consumer -p NRestarts --value)",
+      "Bash(cd /home/hammaad/iot-meter-pilot; echo \"=== which pail file does the RUNNING pail \\(31056\\) hold open? ===\"; ls -l /proc/31056/fd 2>/dev/null | grep -o '/home.*pail' | sed 's/^/  LIVE: /' || echo \"  \\(cannot read fd table\\)\"; echo; echo \"=== all pail files ===\"; ls -lh storage/pail/ | tail -5 | sed 's/^/  /')",
+      "Read(//proc/31056/fd/**)",
+      "Bash(systemctl --user list-units 'iot-meter-*' --no-pager --no-legend)",
+      "Bash(awk '{printf \"  %-30s %s\\\\n\",$1,$3}')",
+      "Bash(journalctl --user -u iot-meter-consumer -n 12 --no-pager)",
+      "Bash(timeout 12 php -r ' *)",
+      "Bash(systemctl --user show iot-meter-consumer -p MainPID -p NRestarts --value)"
     ],
     "additionalDirectories": [
       "/tmp/claude-1000/-home-hammaad-iot-meter-pilot/a3e219c8-d471-44db-af9a-124650eab7d7/scratchpad"

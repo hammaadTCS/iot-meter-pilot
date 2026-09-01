@@ -9,6 +9,7 @@ use Illuminate\Notifications\Channels\BroadcastChannel;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -40,10 +41,71 @@ class AppServiceProvider extends ServiceProvider
     }
 
     /**
+     * Infrastructure settings that must be present for the app to be trustworthy.
+     *
+     * Keyed by config path => the .env key a human needs to go and fix.
+     *
+     * @var array<string, string>
+     */
+    protected const REQUIRED_CONFIG = [
+        'mqtt-client.connections.default.host' => 'MQTT_HOST',
+        'mqtt-client.connections.default.client_id' => 'MQTT_CLIENT_ID',
+        'database.connections.mysql.database' => 'DB_DATABASE',
+        'app.key' => 'APP_KEY',
+    ];
+
+    /**
+     * Refuse to boot when infrastructure configuration is missing.
+     *
+     * WHAT THIS CATCHES: a key that is absent or blank. Combined with removing the
+     * localhost fallback in config/mqtt-client.php, a deleted MQTT_HOST line now
+     * stops the app with a message naming the key, instead of silently connecting
+     * to this machine and reporting itself healthy while ingesting nothing.
+     *
+     * WHAT THIS DOES NOT CATCH: a key that is present but wrong. In the 2026-08-28
+     * incident `.env` was regenerated from `.env.example` and contained
+     * MQTT_HOST=127.0.0.1 — present, and wrong. This guard would have passed it.
+     * That case is caught by meters:scan-health (which did fire correctly, at 05:38)
+     * and depends on alert delivery working, not on configuration validation.
+     *
+     * Skipped under tests: the suite runs on in-memory SQLite with no broker and
+     * must not require real infrastructure to be present.
+     */
+    protected function assertRequiredConfiguration(): void
+    {
+        if ($this->app->runningUnitTests()) {
+            return;
+        }
+
+        $missing = [];
+
+        foreach (self::REQUIRED_CONFIG as $configKey => $envKey) {
+            $value = config($configKey);
+
+            if ($value === null || $value === '') {
+                $missing[] = $envKey;
+            }
+        }
+
+        if ($missing !== []) {
+            throw new RuntimeException(sprintf(
+                'Refusing to start: required configuration is missing [%s]. '
+                .'Set these in .env. They have no safe default — a fallback here '
+                .'would let the application run against the wrong infrastructure '
+                .'while reporting itself healthy.',
+                implode(', ', $missing),
+            ));
+        }
+    }
+
+    /**
      * Bootstrap any application services.
      */
     public function boot(): void
     {
+        // First, before anything can depend on a setting that is not there.
+        $this->assertRequiredConfiguration();
+
         $this->registerPolicies();
 
         // Generate every URL as https:// in production. Without this, a

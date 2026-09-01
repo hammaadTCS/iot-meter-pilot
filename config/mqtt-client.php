@@ -22,7 +22,18 @@ return [
 
     'connections' => [
         'default' => [
-            'host' => env('MQTT_HOST', '127.0.0.1'),
+            // No fallback on `host`, deliberately. It previously read
+            // env('MQTT_HOST', '127.0.0.1'), which meant a MISSING broker address
+            // silently became a working connection to this machine - where no meter
+            // publishes. A wrong answer that connects is far more expensive than no
+            // answer: the app reports itself healthy while ingesting nothing.
+            //
+            // Absent now resolves to null, and AppServiceProvider refuses to boot.
+            // (Note: this guards a *missing* value. A present-but-wrong host is
+            // caught by meters:scan-health, not here.)
+            'host' => env('MQTT_HOST'),
+
+            // A default is safe here: a wrong port fails loudly at connect time.
             'port' => (int) env('MQTT_PORT', 1883),
             'client_id' => env('MQTT_CLIENT_ID', 'laravel-meter-pilot'),
 

@@ -28,6 +28,16 @@ Schedule::command('alerts:scan-thresholds')
     ->everyMinute()
     ->withoutOverlapping();
 
+// Watches the machine rather than the meters: disk, supervised services, failed
+// job depth, log sink sizes. Added 2026-09-01 after the disk filled twice in one
+// month and was discovered both times by something breaking.
+//
+// Every five minutes, not every minute: these conditions move slowly, and at the
+// observed growth rate an 80% disk warning still gives weeks of notice.
+Schedule::command('system:scan-health')
+    ->everyFiveMinutes()
+    ->withoutOverlapping();
+
 Schedule::command('meters:prune-ingestion-events --days=30')
     ->daily()
     ->withoutOverlapping();
