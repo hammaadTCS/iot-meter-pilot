@@ -51,38 +51,44 @@ php artisan db:seed
 
 ## Running it — the processes
 
-You need these going. Easiest is a few terminals (or a process manager). Each stays running.
+Since 2026-09-01 the four processes that must **keep** running are systemd user services.
+They start at boot, restart on crash, and survive a closed terminal. You only run one
+thing by hand.
 
-### Terminal 1 — web app + queue + assets (the `composer dev` bundle)
+### Supervised — you do not start these
+
+```bash
+systemctl --user status  iot-meter-consumer    # MQTT ingest -> meter_readings
+systemctl --user status  iot-meter-queue       # job worker  -> alert delivery
+systemctl --user status  iot-meter-scheduler   # every-minute scans, prunes, rollups
+systemctl --user status  iot-meter-reverb      # websockets  -> live dashboard + bell
+
+systemctl --user restart iot-meter-<name>      # restart one
+journalctl --user -u iot-meter-<name> -f       # follow its logs
+```
+
+Unit files live in `~/.config/systemd/user/` (outside the repo, so not in git).
+`loginctl enable-linger hammaad` is set, which is what lets them run without a login
+session and start at boot.
+
+**Why these are supervised rather than hand-run:** each had a failure mode that was
+invisible. The consumer exits cleanly every 50,000 messages (~12 days) for heap
+recycling and had nothing to restart it. The scheduler *is* the alarm — if it dies
+silently, nothing is ever detected. Reverb dying discards every alert notification.
+And `queue:listen --tries=1` destroyed a job on its first failure, which is how 574
+notifications were lost while Reverb was down.
+
+### Terminal 1 — interactive dev tools only
 ```bash
 composer dev
 ```
-This runs, concurrently: `php artisan serve` (http://127.0.0.1:8000), `queue:listen` (the job worker),
-`pail` (live logs), and `npm run dev` (Vite hot assets).
+Runs `php artisan serve` (http://127.0.0.1:8000), `pail` (live logs), and `npm run dev`
+(Vite hot assets). It uses `--kill-others`, so anything inside it dies when one member
+dies — which is exactly why the queue worker was moved out to systemd.
 
-> If you prefer them separate: `php artisan serve` · `php artisan queue:work` · `npm run dev`.
-
-### Terminal 2 — the scheduler  ⬅ REQUIRED for alerts/notifications
-```bash
-php artisan schedule:work
-```
-Fires every minute: `meters:scan-health` (opens/resolves alerts), `alerts:dispatch-digests` (sends the bell
-notifications), plus `meters:close-day`, `meters:close-month`, `alerts:prune`.
-**Without this, no alert is ever detected and the bell never updates.**
-
-### Terminal 3 — Reverb (WebSocket server) — realtime
-```bash
-php artisan reverb:start
-```
-Powers live dashboard updates and the realtime bell push. Optional for basic use — the bell still populates on
-page load/refresh without it — but required for *live* updates.
-
-### Terminal 4 — MQTT consumer — ingest real meter data
-```bash
-php artisan mqtt:consume-meter
-```
-Consumes meter telemetry from the broker into `meter_readings` / `latest_meter_states` (and maintains the
-daily/monthly rollups). Without it, no new readings arrive (the rest of the app still runs).
+> Do **not** add `queue:listen`, `schedule:work`, `reverb:start`, or the MQTT consumer
+> back into this bundle. They have units. Two workers on one queue compete, and the
+> `composer dev` copy carries the old `--tries=1` semantics.
 
 ---
 
@@ -105,8 +111,14 @@ that user.
 ---
 
 ## Minimum to see the notification bell work
-1. `composer dev` (Terminal 1 — gives you the app + queue worker)
-2. `php artisan schedule:work` (Terminal 2 — **the piece that was missing**)
-3. A meter that's been silent > 10 min **and** owned by the user you're logged in as.
+1. `composer dev` — the web app itself.
+2. A meter silent for > 10 min **and** owned by the user you are logged in as.
 
-Reverb (Terminal 3) and the MQTT consumer (Terminal 4) add realtime push and live data respectively.
+That is all. The scheduler that detects the alert and the queue worker that delivers it
+are both supervised services and are already running — previously they were the two
+pieces most often forgotten.
+
+Confirm with:
+```bash
+systemctl --user list-units 'iot-meter-*'   # expect 4 x active running
+```

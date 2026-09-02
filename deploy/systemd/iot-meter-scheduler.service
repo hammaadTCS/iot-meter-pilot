@@ -1,0 +1,39 @@
+[Unit]
+Description=IoT Meter Task Scheduler
+After=network.target mysql.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/iot-meter-pilot
+
+# `schedule:work` as a supervised long-running service, NOT the `schedule:run` cron
+# line this project used previously.
+#
+# PENDING_WORK.md §0 #7 called for moving the scheduler off cron because "a dead
+# scheduler means no alerts are ever *created* and cron fails silently". It suggested a
+# systemd timer; a supervised `schedule:work` service achieves the same guarantee with
+# one fewer moving part, and its death is visible in `systemctl status` rather than
+# silent.
+#
+# Everything that notices trouble runs from here: meters:scan-health (every minute),
+# system:scan-health (every five), alerts:scan-thresholds, the digest dispatcher, and
+# every prune job that keeps tables bounded. If this dies there is no alarm, because
+# this process IS the alarm.
+ExecStart=/usr/bin/php artisan schedule:work
+
+Restart=always
+RestartSec=5
+
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-scheduler
+
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

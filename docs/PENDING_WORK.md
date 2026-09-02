@@ -35,16 +35,29 @@ reordered. Full reasoning in `THREAT_MODEL.md`.
 |---|---|---|---|
 | 1 | **Mail transport** — ~~free tier SMTP + switch `config/mail.php` default to the `failover` mailer~~ **DONE** `2a82216` (plus a `mail:test` command to verify end to end). **A4** email verification is **still open** — `MustVerifyEmail` remains commented out in `app/Models/User.php`. | 20 min + 4 h | Unblocks the skipped pair in §4a at zero cost. No procurement needed. |
 | 2 | ~~**Triage the 454 failed jobs, and make the broadcast leg non-fatal**~~ — **DONE** `3e9d5d4`. Live push is cosmetic and must never fail alert delivery. | 2 h | Live bug; the noise also hides real failures. |
-| 2b | **npm advisories + split `package.json`** — 11 advisories (2 critical, 7 high) as of 2026-08-27. Only one chain genuinely ships: **axios**, set on `window.axios` in `resources/js/bootstrap.js`. The rest are dev-server, build-time, or a socket.io transport we never import — chain-by-chain reasoning is in the comment on the `npm audit` step in `ci.yml`. Fix axios, then **split `package.json` into `dependencies` (alpinejs, axios, laravel-echo, pusher-js) and `devDependencies` (build tooling)**; there is no `dependencies` block at all today, which is why `--omit=dev` reports a misleading zero. Then make the `npm audit` step blocking. | 3 h | Small, and it converts CI's last non-blocking step into a real gate. |
+| 2b | **npm advisories + split `package.json`** — **13 advisories (2 critical, 8 high, 1 moderate, 2 low) as of 2026-09-02 — worse than the 11 recorded on 2026-08-27, and `package.json` still has no `dependencies` block.** Only one chain genuinely ships: **axios**, set on `window.axios` in `resources/js/bootstrap.js`. The rest are dev-server, build-time, or a socket.io transport we never import — chain-by-chain reasoning is in the comment on the `npm audit` step in `ci.yml`. Fix axios, then **split `package.json` into `dependencies` (alpinejs, axios, laravel-echo, pusher-js) and `devDependencies` (build tooling)**; there is no `dependencies` block at all today, which is why `--omit=dev` reports a misleading zero. Then make the `npm audit` step blocking. | 3 h | Small, and it converts CI's last non-blocking step into a real gate. |
 | 3 | **A10 backups** — `spatie/laravel-backup` → S3-compatible (Cloudflare R2: zero egress, which matters because a restore drill pulls the whole archive), **encrypted** (`cnic`/`phone`/`address` are leaving the building), plus an automated monthly restore-and-diff. **Tier it:** business data (users, devices, rollups, alerts, permissions) daily and long-retained; `meter_readings` weekly and short-retained — the rollups are the product, raw readings are the audit trail. | 1 d | Highest business risk, zero external dependency. **Also unblocks FGAC Phase 7**, whose rollback plan cites a backup that does not exist. |
-| 4 | **A12 observability, in two layers.** (a) Sentry across all five processes, verified with a test exception from each; `LOG_STACK` `single` → `daily`. (b) **Silence detection** — Sentry cannot see "nothing happened", which is the characteristic IoT failure: fleet-wide reading freshness, `failed_jobs` growth, and per-device stalled promotion. Plus an **external** uptime monitor on `/up`, because everything else runs inside the box and cannot report its own death. | 5 h | The 454-job blind spot is the argument. Needed before any fleet-wide operation. |
-| 5 | **Device-time trust guards** (new — see below) | 4 h | Closes a live silent-failure mode. |
+| 4 | **A12 observability, in two layers.** (a) Sentry across all five processes, verified with a test exception from each; ~~`LOG_STACK` `single` → `daily`~~ **DONE 2026-09-01**. (b) **Silence detection** — Sentry cannot see "nothing happened", which is the characteristic IoT failure. **Partly DONE 2026-09-01:** `system:scan-health` now covers disk, the four units being active, `failed_jobs` depth and log-sink sizes, emitting into the existing alert pipeline (`alert_events.device_id` is nullable; `device_type='system'`). **Still open:** Sentry; per-device stalled promotion; and the **external** uptime monitor on `/up` — everything else runs inside the box and cannot report its own death. <br>**This is the item discussed in chat as "3c".** One piece of work, tracked only here. Nearest-term half is the dead-man's switch: free, ~1 h, and the only mechanism surviving power loss or a wedged host. `config/mail.php` already has the `smtp → log` failover chain and `mail:test`; only credentials are missing. | 5 h → ~3 h | The 454-job blind spot is the argument. **Reinforced 2026-08-28:** detection fired in 10 min, delivery took 5 h 41 m. |
+| 5 | **Device-time trust guards** (see below) — **STILL LIVE, verified 2026-09-02:** 130 rows carry `ts < 100000`, most recent `id=309704, ts=107, received_at=2026-09-02 08:31:01`. This is not historical; bad timestamps arrive daily. | 4 h | Closes a live silent-failure mode. **Priority raised** — the defect is producing data now, and the 2026-08-28 outage showed how long a silent failure survives here. |
 | 6 | **Firmware version tracking** (new — see below) | 3 h | Prerequisite for a safe OTA. |
-| 7 | **Supervise the remaining four daemons** — standardise on systemd and delete the supervisor config (two mechanisms with conflicting paths today). `queue:work` gets `--max-time=3600`; the **scheduler becomes a systemd timer, not a cron line**, because a dead scheduler means no alerts are ever *created* and cron fails silently. | 3 h | |
+| 7 | ~~**Supervise the remaining four daemons** — standardise on systemd and delete the supervisor config; `queue:work` gets `--max-time=3600`; the scheduler stops being a cron line.~~ **DONE 2026-09-01** `b231e82`. Four units, `Restart=always` (not `on-failure` — both the consumer and the worker exit *successfully* to recycle their heap), `queue:work --tries=3 --backoff=10,60,300 --max-time=3600`, `deploy/supervisor/` deleted. **Deviation:** the scheduler is a supervised `schedule:work` **service**, not a timer — same guarantee, one fewer moving part, and its death is visible in `systemctl status`. Units are versioned in `deploy/systemd/`. Full account: [CHANGELOG_2026-09-01.md](CHANGELOG_2026-09-01.md) §3. | ~~3 h~~ | |
 | 8 | **A7 TLS → A6 per-device credentials + ACLs**, canary first: one device → verify 24 h → rest of fleet | 2–3 d | Now with backups, visibility, device-trust guards and fleet awareness in place. |
 
 After 8: **A11a** (`raw_payload` retention), **FGAC Phase 7**, **Phase 8 guardrails**,
 then §3 availability alerts merged with the ingestion watchdog.
+
+### Found 2026-09-01 / 09-02 — small, and each has evidence
+
+| # | Item | Effort | Evidence it is needed |
+|---|---|---|---|
+| 9 | **Prune orphaned `.pail` files.** Laravel Pail registers a file per listener and the app writes to *every registered file*; `Ctrl+C` on `composer dev` never removes it. Three orphans (5.8 GB, 3.2 GB, 245 MB) meant **every log line was written to disk four times**. A scheduled command should delete `.pail` files with no live listener. | 1 h | Deleted 2026-09-01; **two new orphans existed within hours** (created 12:48 and 14:21, no `pail` process running). Recurs on every dev-session exit. |
+| 10 | **Guard `RangeConsumption` against pruned windows.** It computes a range as first part-day (raw readings) + interior whole days (daily rollups) + last part-day (raw readings). When the start day has no readings it falls through to `rawWalk` over the whole range and **returns a figure that is too low with no error**. | 2 h | **Blocks item 11.** A silently wrong consumption figure is worse than a missing one. |
+| 11 | **Data retention for `meter_readings`** — the only unbounded table. Recommendation: **90 days** for readings, **30 days** for `raw_payload` (this is **A11a**). Analysis, measurements and per-endpoint impact: [DATA_RETENTION_DECISION.md](DATA_RETENTION_DECISION.md). | 3 h | **Awaiting management approval.** Not urgent: 36 GB free, ~4 years of headroom at the 50-device plan, and only 33 days of readings exist so a 90-day policy deletes nothing until late October 2026. Build item 10 first. |
+| 12 | **Decide Livewire: adopt or remove.** `livewire/livewire ^4.3` is installed and `@livewireStyles` / `@livewireScripts` render in both layouts, but `app/Livewire/` is empty and no view uses `wire:`. Its assets ship on every request for zero components. | 30 min | Either use it or drop the dependency and the two directive pairs. Note the frontend is Blade + inline Alpine + axios against the JSON API — there is no component layer to migrate. |
+
+> **A11b (monthly partitioning) stays deferred.** It was raised again during the 2026-09-01
+> retention analysis; the objection recorded under "Deliberately NOT scheduled" below is
+> the stronger argument and stands. Its triggers are unchanged.
 
 ### New item — device-time trust guards (#5)
 
@@ -182,11 +195,28 @@ and its precedence rules) rather than adding a racing command; the per-meter
 
 ## 4. Noted, deliberately deferred
 
-### 4a. Real mail transport + email verification — SKIPPED 2026-08-04 (decision)
+### 4a. Real mail transport + email verification — PARTLY RESOLVED
 Both were scheduled for the commercial-hardening sprint (items A8 and A4) and were
-**deliberately skipped** because no mail provider was available at the time. They are a
+**deliberately skipped on 2026-08-04** because no mail provider was available. They are a
 pair: A4 must never ship without A8, or every new signup dead-ends on the "verify your
 email" screen with the link sitting in a log file.
+
+> **Corrected 2026-09-02.** This section said "SKIPPED" while §0 item 1 said the transport
+> was **DONE** (`2a82216`) — the same document asserting both. The accurate position:
+>
+> - **A8 transport — BUILT.** `config/mail.php` defines a `failover` mailer chaining
+>   `smtp → log`, and `php artisan mail:test` verifies it end to end.
+> - **What is missing is only credentials.** `.env` still forces `MAIL_MAILER=log`,
+>   which overrides that chain, so nothing is actually sent. Setting
+>   `MAIL_MAILER=failover` plus `MAIL_HOST/PORT/USERNAME/PASSWORD/SCHEME` activates it —
+>   free-tier volumes are ample for a handful of operators.
+> - **A4 email verification — still open.** `MustVerifyEmail` remains commented at
+>   `app/Models/User.php:5` (verified 2026-09-02).
+>
+> When credentials land, add `MAIL_HOST` and `MAIL_USERNAME` to
+> `AppServiceProvider::REQUIRED_CONFIG` so a blank value refuses to boot — a blank
+> setting silently falling back is the precise failure of 2026-08-28
+> ([CHANGELOG_2026-09-01.md](CHANGELOG_2026-09-01.md) §2.1).
 
 **What is broken while this stands:**
 - `MAIL_MAILER=log` — every queued `AlertDigestNotification` writes its mail leg to

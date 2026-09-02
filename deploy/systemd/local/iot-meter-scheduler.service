@@ -1,0 +1,30 @@
+[Unit]
+Description=IoT Meter Pilot - task scheduler
+Documentation=file:///home/hammaad/iot-meter-pilot/docs/RUNNING_LOCALLY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hammaad/iot-meter-pilot
+ExecStart=/usr/bin/php /home/hammaad/iot-meter-pilot/artisan schedule:work
+
+# Why this must be supervised: everything that notices trouble runs from here -
+# meters:scan-health (every minute), alerts:scan-thresholds, the digest
+# dispatcher, and every prune job that keeps tables bounded.
+#
+# If the scheduler dies there is no alarm, because the scheduler IS the alarm.
+# It was previously a bare background process that would not survive a reboot
+# or a closed terminal.
+Restart=always
+RestartSec=5
+
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-scheduler
+
+[Install]
+WantedBy=default.target

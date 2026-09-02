@@ -1,0 +1,45 @@
+[Unit]
+Description=IoT Meter Pilot - queue worker (alert delivery)
+Documentation=file:///home/hammaad/iot-meter-pilot/docs/RUNNING_LOCALLY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hammaad/iot-meter-pilot
+
+# Replaces `queue:listen --tries=1` which ran inside `composer dev`.
+#
+# Three deliberate differences from what it replaces:
+#
+#   queue:work (not listen) - `listen` reboots the framework for every job. That
+#     is a development convenience; `work` is the supervised-process form.
+#
+#   --tries=3 --backoff  - the old --tries=1 destroyed a job on its FIRST
+#     failure with no retry. That is why 574 alert notifications were lost while
+#     Reverb was unreachable: one failed broadcast, job gone permanently.
+#     Backoff waits 10s, then 60s, then 300s, so a briefly-unavailable service
+#     costs a delay instead of the notification.
+#
+#   --max-time=3600 - exit cleanly each hour so systemd recycles the PHP heap,
+#     mirroring the consumer's --restart-after. Restart=always covers the
+#     planned exit as well as crashes.
+ExecStart=/usr/bin/php /home/hammaad/iot-meter-pilot/artisan queue:work \
+    --tries=3 \
+    --backoff=10,60,300 \
+    --max-time=3600 \
+    --sleep=3
+
+Restart=always
+RestartSec=5
+
+# SIGTERM lets the worker finish the job in hand before exiting.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-queue
+
+[Install]
+WantedBy=default.target
