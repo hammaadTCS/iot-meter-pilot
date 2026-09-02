@@ -1,0 +1,45 @@
+[Unit]
+Description=IoT Meter Queue Worker (alert delivery)
+After=network.target mysql.service redis.service
+Wants=mysql.service
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/var/www/iot-meter-pilot
+
+# This process is what actually DELIVERS alerts. Three deliberate choices:
+#
+#   queue:work (not queue:listen) — `listen` reboots the framework per job, which is
+#     a development convenience, not a supervised-process form.
+#
+#   --tries=3 --backoff  — the local setup previously ran `--tries=1`, which destroyed
+#     a job on its FIRST failure. That is how 574 alert notifications were lost between
+#     2026-08-01 and 2026-08-28 while Reverb was unreachable: one failed broadcast and
+#     the notification was gone permanently. Backoff waits 10s, 60s, then 300s, so a
+#     briefly-unavailable service costs a delay rather than the alert.
+#
+#   --max-time=3600  — exit cleanly each hour so systemd recycles the PHP heap. This is
+#     why Restart=always matters: the exit is a SUCCESS, and Restart=on-failure would
+#     leave the worker stopped.
+ExecStart=/usr/bin/php artisan queue:work \
+    --tries=3 \
+    --backoff=10,60,300 \
+    --max-time=3600 \
+    --sleep=3
+
+Restart=always
+RestartSec=5
+
+# SIGTERM lets the worker finish the job in hand before exiting.
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-queue
+
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

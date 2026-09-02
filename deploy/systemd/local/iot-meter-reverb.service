@@ -1,0 +1,30 @@
+[Unit]
+Description=IoT Meter Pilot - Reverb websocket server
+Documentation=file:///home/hammaad/iot-meter-pilot/docs/RUNNING_LOCALLY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hammaad/iot-meter-pilot
+ExecStart=/usr/bin/php /home/hammaad/iot-meter-pilot/artisan reverb:start
+
+# Why this must be supervised: every alert notification is broadcast through
+# Reverb. While it was down between 28 Aug and 1 Sep, 574 notification jobs
+# failed and were discarded. An unreachable websocket server does not degrade
+# the product quietly - it silently stops users being told anything.
+#
+# Binds REVERB_SERVER_PORT (8080). phpMyAdmin was moved to 8081 on 28 Aug to
+# free this port; do not map anything else onto 8080.
+Restart=always
+RestartSec=5
+
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-reverb
+
+[Install]
+WantedBy=default.target

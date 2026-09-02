@@ -1,0 +1,28 @@
+[Unit]
+Description=IoT Meter Pilot - MQTT telemetry consumer
+Documentation=file:///home/hammaad/iot-meter-pilot/docs/RUNNING_LOCALLY.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/hammaad/iot-meter-pilot
+ExecStart=/usr/bin/php /home/hammaad/iot-meter-pilot/artisan mqtt:consume-meter
+
+# The command exits cleanly (status 0) every --restart-after=50000 messages so the
+# supervisor can recycle the PHP heap. Restart=always covers that planned exit as
+# well as crashes; Restart=on-failure would leave it stopped roughly every 12 days.
+Restart=always
+RestartSec=5
+
+# SIGTERM is handled (pcntl_signal in ConsumeMeterTopic); the loop finishes the
+# current message, releases the flock, then exits.
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iot-meter-consumer
+
+[Install]
+WantedBy=default.target
