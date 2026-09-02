@@ -47,6 +47,8 @@
 13. [Glossary](#13-glossary)
 14. [Change log — commercial hardening sprint](#14-change-log--commercial-hardening-sprint)
     - Dated deep-dive: [CHANGELOG_2026-08-27.md](CHANGELOG_2026-08-27.md) — repairing the CI gate
+    - Dated deep-dive: [CHANGELOG_2026-09-01.md](CHANGELOG_2026-09-01.md) — the six-hour silent
+      outage, and the supervision / bounded-logging / self-monitoring work that followed
 
 ---
 
@@ -395,8 +397,9 @@ iot-meter-pilot/
 │   ├── factories/          ← fake-data blueprints for tests
 │   ├── seeders/            ← DB seeding entry point
 │   └── database.sqlite     ← the dev database (when using sqlite)
-├── deploy/                 ← supervisor + systemd unit files for the
-│                              MQTT consumer daemon (see §10)
+├── deploy/                 ← systemd unit files for all four daemons —
+│                              production templates + the local user units
+│                              actually running (see §10, deploy/README.md)
 ├── docs/                   ← project documentation (this file, runbook,
 │                              ERD, use-cases, pending work, FGAC plan)
 ├── public/                 ← THE ONLY WEB-EXPOSED FOLDER: index.php + built assets
@@ -471,22 +474,54 @@ and its daily twin right below it.
 
 ## 7. The five running processes
 
-A Django dev runs one process; **this app needs five in production** (and
-`composer dev` starts four of them for you locally — see
-[composer.json](../composer.json) `scripts.dev`):
+A Django dev runs one process; **this app needs five**. Since 2026-09-01 **four of them
+are systemd services** and only the web server is started by hand:
 
-| # | Process | Command | What dies if it's down |
+| # | Process | How it runs | What dies if it's down |
 |---|---|---|---|
-| 1 | Web server | `php artisan serve` (dev) / nginx+php-fpm (prod) | the entire UI and API |
-| 2 | **MQTT consumer** | `php artisan mqtt:consume-meter` | no new readings stored (broker buffers QoS-1 messages meanwhile; they arrive as "catch-up" on reconnect) |
-| 3 | Queue worker | `php artisan queue:work` | alert recipients never resolved, emails/bell notifications never sent (rows pile up in `jobs`) |
-| 4 | Scheduler | `php artisan schedule:work` (dev) / one cron line (prod) | no health/budget/threshold scans, no digests, no pruning, no day/month closing |
-| 5 | Reverb WebSocket server | `php artisan reverb:start` | no live bell pushes (pages still work — the dashboard polls over HTTP anyway) |
+| 1 | Web server | `composer dev` (dev) / nginx+php-fpm (prod) | the entire UI and API |
+| 2 | **MQTT consumer** | **`iot-meter-consumer.service`** | no new readings stored (broker buffers QoS-1 messages meanwhile; they arrive as "catch-up" on reconnect) |
+| 3 | Queue worker | **`iot-meter-queue.service`** | alert recipients never resolved, emails/bell notifications never sent (rows pile up in `jobs`) |
+| 4 | Scheduler | **`iot-meter-scheduler.service`** | no health/budget/threshold scans, no digests, no pruning, no day/month closing |
+| 5 | Reverb WebSocket server | **`iot-meter-reverb.service`** | no live bell pushes — **and every broadcast notification job fails** |
 
-Plus the **MQTT broker** (Mosquitto) and the database, which are external
-services. Local step-by-step setup is documented in
-[docs/RUNNING_LOCALLY.md](RUNNING_LOCALLY.md); production process
-supervision in [§10](#10-deployment-pieces).
+```bash
+systemctl --user list-units 'iot-meter-*'     # expect 4 x active running
+journalctl --user -u iot-meter-consumer -f
+```
+
+**`composer dev` now starts only `serve`, `pail` and `vite`.** Do not add the other four
+back into it: they have units, two workers on one queue compete for jobs, and
+`composer dev` runs `concurrently --kill-others`, so one crash would take the rest down
+with it — which is exactly why the queue worker was moved out.
+
+Three details that each cost an incident:
+
+- **`Restart=always`, not `on-failure`.** The consumer exits *successfully* every 50,000
+  messages (`--restart-after`) and the queue worker hourly (`--max-time=3600`), both to
+  recycle the PHP heap. `on-failure` would leave them stopped. With no supervisor at all,
+  the consumer stopped roughly **every 12 days** and was restarted by hand.
+- **The scheduler is a service, not a cron line.** It *creates* every alert, so its death
+  must not be silent.
+- **`loginctl enable-linger`** is required for the user units, or they stop at logout and
+  never start at boot.
+
+Plus the **MQTT broker** (remote) and the database, which are external services. Note
+there is deliberately **no local broker** — see [§7.1](#71-why-no-local-mqtt-broker).
+Local setup: [docs/RUNNING_LOCALLY.md](RUNNING_LOCALLY.md). Unit files and install steps:
+[deploy/README.md](../deploy/README.md). Full account of the change:
+[CHANGELOG_2026-09-01.md](CHANGELOG_2026-09-01.md).
+
+### 7.1 Why no local MQTT broker
+
+On 2026-08-28 a regenerated `.env` lost the broker address, and
+`env('MQTT_HOST', '127.0.0.1')` silently substituted localhost. A local mosquitto was
+running with `allow_anonymous true`, **accepted the connection, and delivered nothing** —
+so the application reported itself healthy while ingesting nothing for **6 h 36 m**.
+
+With no broker listening on 1883, that same mistake now fails in one second with
+`Connection refused`. The absence is a safety feature; `docker-compose.yml` carries a
+comment saying not to add one back.
 
 ---
 
@@ -982,17 +1017,29 @@ consumer and queue worker only read config at startup — restart them**.
 
 ## 10. Deployment pieces
 
-The [deploy/](../deploy/) folder holds process supervision for the MQTT consumer —
-pick **one** mechanism:
+The [deploy/](../deploy/) folder holds supervision for **all four** daemons.
+**systemd is the only supported mechanism** — the supervisor configs were deleted on
+2026-09-02 because maintaining two supervisors with conflicting paths was itself a
+failure mode (`PENDING_WORK.md` §0 #7 asked for exactly this).
 
-- [deploy/supervisor/iot-mqtt-consumer.conf](../deploy/supervisor/iot-mqtt-consumer.conf) — supervisord program entry
-- [deploy/systemd/iot-mqtt-consumer.service](../deploy/systemd/iot-mqtt-consumer.service) — systemd unit
+- [deploy/systemd/](../deploy/systemd/) — production templates (`www-data`,
+  `/var/www/iot-meter-pilot`). Edit `User=`, `WorkingDirectory=` and `ExecStart=` first.
+- [deploy/systemd/local/](../deploy/systemd/local/) — the **user units actually running
+  on the development machine**, versioned byte-for-byte so a rebuilt machine reproduces
+  them exactly.
+- [deploy/README.md](../deploy/README.md) — install steps for both, including
+  `loginctl enable-linger` and bounding the journal.
 
-Both auto-restart the consumer when it exits (including its intentional
-every-50 000-messages self-restart). Production additionally needs a queue
-worker under the same supervision, one cron line for the scheduler
-(`* * * * * php /path/artisan schedule:run`), Reverb, nginx+php-fpm, MySQL and
-Mosquitto. The step-by-step operational procedures — deploys, restarts, log
+All four units auto-restart on exit — including the consumer's intentional
+every-50 000-messages self-restart and the queue worker's hourly `--max-time` exit. That
+is why they specify `Restart=always` and not `Restart=on-failure`: both of those exits
+are **successes**, and `on-failure` would leave the process stopped.
+
+**The scheduler is a service, not a cron line.** It was `* * * * * php artisan
+schedule:run` until 2026-09-01. Cron fails silently, and the scheduler is what *creates*
+every alert, so its death would have been invisible. Production additionally needs
+nginx+php-fpm and the database; the MQTT broker is remote and there is deliberately no
+local one ([§7.1](#71-why-no-local-mqtt-broker)). The step-by-step operational procedures — deploys, restarts, log
 locations, health checks, common incidents — are in
 [docs/OPERATIONS_RUNBOOK.md](OPERATIONS_RUNBOOK.md), and the original
 production rollout checklist in
